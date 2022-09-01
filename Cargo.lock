@@ -401,6 +401,8 @@ dependencies = [
  "chrono-tz",
  "dotenv",
  "influxdb",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 

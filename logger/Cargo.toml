@@ -14,5 +14,7 @@ chrono-tz = { version = "0.4", features = ["serde"] }
 influxdb = { version = "0.5.1", features = ["derive"] }
 dotenv = "0.15.0"
 anyhow = { version = "1.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1.0.64" }
 
 api = { path = "../api" }

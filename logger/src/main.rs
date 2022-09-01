@@ -3,10 +3,15 @@ use std::time::Duration;
 use api::TSV;
 use api::get_consumption_data;
 use api::get_production_data;
+use chrono::NaiveDateTime;
+use chrono::TimeZone;
 use chrono::{DateTime, Utc};
 use dotenv::dotenv;
 use influxdb::Client;
 use influxdb::InfluxDbWriteable;
+use influxdb::ReadQuery;
+use serde::Deserialize;
+use serde::Serialize;
 use tokio::time::sleep;
 
 #[derive(InfluxDbWriteable)]
@@ -23,6 +28,27 @@ struct TimeSeriesValue {
     unit: String,
     timestamp: String,
     value: f32,
+    price: f32,
+}
+
+#[derive(Debug, InfluxDbWriteable, Serialize, Deserialize)]
+#[allow(non_snake_case)]
+struct PriceData {
+    time: DateTime<Utc>,
+    #[influxdb(tag)]
+    type_tag: String,
+    #[influxdb(tag)]
+    in_domain_tag: String,
+    #[influxdb(tag)]
+    out_domain_tag: String,
+    document_type: String,
+    in_domain: String,
+    out_domain: String,
+    currency: String,
+    price_measure: String,
+    curve_type: String,
+    timestamp: String,
+    price: f32,
 }
 
 async fn fetch_and_log_new_production_entry(
@@ -76,6 +102,7 @@ async fn log_new_production_entry(client: &Client,
         println!("Logging production UTC: {:?} - {}", time, time_series_value.q);
 
         let time = time.unwrap();
+        let price = get_day_ahead_price(&client, &time).await;
         let current_data = TimeSeriesValue {
             time: time,
             meteringpointcode_tag: meteringpointcode.to_string(),
@@ -85,6 +112,7 @@ async fn log_new_production_entry(client: &Client,
             unit: unit.to_string(),
             timestamp: time.format("%Y-%m-%dT%H:%M:%S").to_string(),
             value: time_series_value.q,
+            price: price / 1000.0,
         };
 
         let write_result = client
@@ -108,6 +136,7 @@ async fn log_new_consumption_entry(client: &Client,
         println!("Logging consumption UTC: {:?} - {}", time, time_series_value.q);
 
         let time = time.unwrap();
+        let price = get_day_ahead_price(&client, &time).await;
         let current_data = TimeSeriesValue {
             time: time,
             meteringpointcode_tag: meteringpointcode.to_string(),
@@ -117,6 +146,7 @@ async fn log_new_consumption_entry(client: &Client,
             unit: unit.to_string(),
             timestamp: time.format("%Y-%m-%dT%H:%M:%S").to_string(),
             value: time_series_value.q,
+            price: price / 1000.0,
         };
 
         let write_result = client
@@ -125,6 +155,30 @@ async fn log_new_consumption_entry(client: &Client,
         if let Err(err) = write_result {
             eprintln!("Error writing to db: {}", err)
         }
+}
+
+async fn get_day_ahead_price(client: &Client, time: &DateTime<Utc>) -> f32 {
+    let read_query = ReadQuery::new(format!("SELECT * FROM dayAheadPrices WHERE type_tag='A44' AND time='{}' LIMIT 1", time.to_rfc3339()));
+
+    let read_result = client
+        .json_query(read_query)
+        .await
+        .and_then(|mut db_result| db_result.deserialize_next::<PriceData>());
+        
+    match read_result {
+        Ok(result) => {
+            if result.series.len() > 0 && result.series[0].values.len() > 0
+            {
+                let data = &result.series[0].values[0];
+                return data.price;
+            }            
+        },
+        Err(err) => {
+            eprintln!("Error reading dayAheadPrices from the db: {}", err);
+        }
+    }
+
+    0.0
 }
 
 #[tokio::main]
