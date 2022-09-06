@@ -235,9 +235,9 @@ async fn set_consumption_fees(client: &Client, start: &DateTime<Utc>, end: &Date
                         meteringpointcode: value.meteringpointcode.to_string(),
                         measurementtype: value.measurementtype.to_string(),
                         unit: value.unit.to_string(),
-                        timestamp: value.time.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                        timestamp: value.timestamp.to_string(),
                         value: value.value,
-                        price: value.price / 1000.0,
+                        price: value.price,
             
                         transfer_basic_fee: Some(transfer_basic_fee),
                         transfer_fee: Some(transfer_fee),
@@ -283,9 +283,9 @@ async fn set_production_fees(client: &Client, start: &DateTime<Utc>, end: &DateT
                         meteringpointcode: value.meteringpointcode.to_string(),
                         measurementtype: value.measurementtype.to_string(),
                         unit: value.unit.to_string(),
-                        timestamp: value.time.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                        timestamp: value.timestamp.to_string(),
                         value: value.value,
-                        price: value.price / 1000.0,
+                        price: value.price,
             
                         transfer_basic_fee: None,
                         transfer_fee: Some(transfer_fee),
