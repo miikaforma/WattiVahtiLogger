@@ -340,31 +340,28 @@ fn get_consumption_transfer_fee(time: &DateTime<Utc>) -> f32 {
         .unwrap_or(Ok(7))
         .unwrap();
 
-    let mut fee = 0.0;
     if time_or_seasonal {
         let local = time.with_timezone(&Helsinki);
         let hour = local.hour();
-        if hour <= time_end || hour >= time_start {
-            fee = dotenv::var("CONSUMPTION_TRANSFER_FEE_NIGHT")
+        if hour < time_end || hour >= time_start {
+            return dotenv::var("CONSUMPTION_TRANSFER_FEE_NIGHT")
                 .map(|var| var.parse::<f32>())
                 .unwrap_or(Ok(0.0))
                 .unwrap();
         }
         else {
-            fee = dotenv::var("CONSUMPTION_TRANSFER_FEE_DAY")
+            return dotenv::var("CONSUMPTION_TRANSFER_FEE_DAY")
                 .map(|var| var.parse::<f32>())
                 .unwrap_or(Ok(0.0))
                 .unwrap();
         }
     }
     else {
-        fee = dotenv::var("CONSUMPTION_TRANSFER_FEE")
+        return dotenv::var("CONSUMPTION_TRANSFER_FEE")
             .map(|var| var.parse::<f32>())
             .unwrap_or(Ok(0.0))
             .unwrap();
     }
-
-    fee
 }
 
 fn get_consumption_tax_fee() -> f32 {
