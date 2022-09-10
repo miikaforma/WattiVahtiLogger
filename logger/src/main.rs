@@ -8,13 +8,19 @@ use chrono::TimeZone;
 use chrono::Timelike;
 use chrono::{DateTime, Utc};
 use chrono_tz::Europe::Helsinki;
+use chrono_tz::Tz;
 use dotenv::dotenv;
 use influxdb::Client;
 use influxdb::InfluxDbWriteable;
 use influxdb::ReadQuery;
+use reqwest::StatusCode;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::time::sleep;
+
+use crate::authmodels::TokenRequest;
+use crate::authmodels::TokenResponse;
+pub mod authmodels;
 
 #[derive(Debug, InfluxDbWriteable, Serialize, Deserialize)]
 #[allow(non_snake_case)]
@@ -399,6 +405,62 @@ fn parse_time_to_utc(time: &str) -> DateTime<Utc> {
         .naive_utc())
 }
 
+
+async fn get_access_token(endpoint: &str, username: &str, password: &str) -> Result<TokenResponse, anyhow::Error> {
+    println!("Fetching a new access_token for WattiVahti user - {}", &username);
+
+    let res = reqwest::Client::new()
+        .post(format!("{}/wattivahti/token", endpoint))
+        .json(&TokenRequest {
+            username: username.to_string(),
+            password: password.to_string(),
+        })
+        .send()
+        .await?;
+
+    let status = res.status();
+
+    let data_str = res
+        .text()
+        .await?;
+    // println!("{}", data_str);
+
+    if status != StatusCode::OK {
+        return Err(anyhow::anyhow!(data_str));
+    }
+
+    let data: TokenResponse = serde_json::from_str(&data_str)?;
+    // println!("TokenResponse: {:#?}", data);
+
+    Ok(data)
+}
+
+fn get_6_oclock_milliseconds() -> i64 {
+    let helsinki_now: DateTime<Tz> = Utc::now().with_timezone(&Helsinki);
+    let mut next = helsinki_now + chrono::Duration::days(1);
+    next = next.with_hour(6).unwrap();
+    next = next.with_minute(0).unwrap();
+    next = next.with_second(0).unwrap();
+
+    //next.format("%Y-%m-%dT%H:%M:%S").to_string()
+    next.timestamp_millis() - helsinki_now.timestamp_millis()
+}
+
+fn get_start_stop() -> (String, String) {
+    let helsinki_now: DateTime<Tz> = Utc::now().with_timezone(&Helsinki);
+
+    let stop = helsinki_now - chrono::Duration::days(1);
+
+    (stop.format("%Y-%m-%dT00:00:00").to_string(), helsinki_now.format("%Y-%m-%dT00:00:00").to_string())
+}
+
+fn get_time_after_duration(duration: u64) -> String {
+    let helsinki_now: DateTime<Tz> = Utc::now().with_timezone(&Helsinki);
+    let time = helsinki_now + chrono::Duration::milliseconds(duration as i64);
+
+    time.format("%Y-%m-%dT%H:%M:%S").to_string()
+}
+
 #[tokio::main]
 async fn main() {
     dotenv().ok();
@@ -416,7 +478,15 @@ async fn main() {
         .unwrap_or(Ok(false))
         .unwrap();
 
-    let access_token = dotenv::var("ACCESS_TOKEN").unwrap_or("".to_string());
+    let single_mode: bool = dotenv::var("SINGLE_MODE")
+        .map(|var| var.parse::<bool>())
+        .unwrap_or(Ok(false))
+        .unwrap();
+
+    let mut access_token = dotenv::var("ACCESS_TOKEN").unwrap_or("".to_string());
+    let wattivahti_username = dotenv::var("WATTIVAHTI_USERNAME").unwrap_or("".to_string());
+    let wattivahti_password = dotenv::var("WATTIVAHTI_PASSWORD").unwrap_or("".to_string());
+    let wattivahti_token_endpoint = dotenv::var("WATTIVAHTI_TOKEN_ENDPOINT").unwrap_or("".to_string());
     let consumption_metering_point_code = dotenv::var("CONSUMPTION_METERING_POINT_CODE").unwrap();
     let production_metering_point_code = dotenv::var("PRODUCTION_METERING_POINT_CODE").unwrap();
     let start = dotenv::var("START").unwrap();
@@ -443,17 +513,72 @@ async fn main() {
         )
         .await;
 
-        println!("Fees changed, exiting soon...");
+        println!("Fees changed for {} - {}, exiting in {}ms ...", start, stop, interval);
+        sleep(Duration::from_millis(interval)).await;
+    }
+    else if single_mode {
+        // If credentials provided, use those instead of the given access token (if access token was even given)
+        if !wattivahti_username.is_empty() {
+            let result = get_access_token(&wattivahti_token_endpoint, &wattivahti_username, &wattivahti_password).await;
+            if result.is_err() {
+                println!("Logging {} - {} failed because of accessToken, waiting for the next fetch in {}ms...", start, stop, interval);
+                sleep(Duration::from_millis(interval)).await;
+            }
+            let result = result.unwrap();
+            if result.access_token.is_none() {
+                println!("Logging {} - {} failed because of accessToken, waiting for the next fetch in {}ms...", start, stop, interval);
+                sleep(Duration::from_millis(interval)).await;
+            }
+            access_token = result.access_token.unwrap();
+        }
+
+        fetch_and_log_new_production_entry(
+            &client,
+            &access_token,
+            &production_metering_point_code,
+            &start,
+            &stop,
+        )
+        .await;
+
+        fetch_and_log_new_consumption_entry(
+            &client,
+            &access_token,
+            &consumption_metering_point_code,
+            &start,
+            &stop,
+        )
+        .await;
+
+        println!("Logging {} - {} done, exiting in {}ms ...", start, stop, interval);
         sleep(Duration::from_millis(interval)).await;
     }
     else {
         loop {
+            // If credentials provided, use those instead of the given access token (if access token was even given)
+            if !wattivahti_username.is_empty() {
+                let result = get_access_token(&wattivahti_token_endpoint, &wattivahti_username, &wattivahti_password).await;
+                if result.is_err() {
+                    println!("Logging {} - {} failed because of accessToken, waiting for the next fetch at {} ...", start, stop, get_time_after_duration(interval));
+                    sleep(Duration::from_millis(interval)).await;
+                    continue;
+                }
+                let result = result.unwrap();
+                if result.access_token.is_none() {
+                    println!("Logging {} - {} failed because of accessToken, waiting for the next fetch at {} ...", start, stop, get_time_after_duration(interval));
+                    sleep(Duration::from_millis(interval)).await;
+                    continue;
+                }
+                access_token = result.access_token.unwrap();
+            }
+
+            let start_stop = get_start_stop();
             fetch_and_log_new_production_entry(
                 &client,
                 &access_token,
                 &production_metering_point_code,
-                &start,
-                &stop,
+                &start_stop.0,
+                &start_stop.1,
             )
             .await;
     
@@ -461,13 +586,38 @@ async fn main() {
                 &client,
                 &access_token,
                 &consumption_metering_point_code,
-                &start,
-                &stop,
+                &start_stop.0,
+                &start_stop.1,
             )
             .await;
     
-            println!("Logging done, waiting for the next fetch...");
-            sleep(Duration::from_millis(interval)).await;
+            let next_fetch_interval = get_6_oclock_milliseconds() as u64;
+            println!("Logging {} - {} done, waiting for the next fetch at {} ...", start, stop, get_time_after_duration(next_fetch_interval));
+            sleep(Duration::from_millis(next_fetch_interval)).await;
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_get_start_stop() {
+        let data = get_start_stop();
+        println!("Result: {} - {}", data.0, data.1);
+    }
+
+    #[tokio::test]
+    async fn test_get_time_after_duration() {
+        let data = get_time_after_duration(21_600_000);
+        println!("Result: {}", data);
+    }
+
+    #[tokio::test]
+    async fn test_get_6_oclock_milliseconds() {
+        let data = get_6_oclock_milliseconds();
+        println!("Result: {}", data);
+    }
+}
+
