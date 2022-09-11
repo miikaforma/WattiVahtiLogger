@@ -435,10 +435,15 @@ async fn get_access_token(endpoint: &str, username: &str, password: &str) -> Res
     Ok(data)
 }
 
-fn get_6_oclock_milliseconds() -> i64 {
+fn get_next_fetch_milliseconds() -> i64 {
     let helsinki_now: DateTime<Tz> = Utc::now().with_timezone(&Helsinki);
     let mut next = helsinki_now + chrono::Duration::days(1);
-    next = next.with_hour(6).unwrap();
+
+    let fetch_hour: u32 = dotenv::var("FETCH_HOUR")
+        .map(|var| var.parse::<u32>())
+        .unwrap_or(Ok(6))
+        .unwrap();
+    next = next.with_hour(fetch_hour).unwrap();
     next = next.with_minute(0).unwrap();
     next = next.with_second(0).unwrap();
 
@@ -591,8 +596,8 @@ async fn main() {
             )
             .await;
     
-            let next_fetch_interval = get_6_oclock_milliseconds() as u64;
-            println!("Logging {} - {} done, waiting for the next fetch at {} ...", start, stop, get_time_after_duration(next_fetch_interval));
+            let next_fetch_interval = get_next_fetch_milliseconds() as u64;
+            println!("Logging {} - {} done, waiting for the next fetch at {} ...", start_stop.0, start_stop.1, get_time_after_duration(next_fetch_interval));
             sleep(Duration::from_millis(next_fetch_interval)).await;
         }
     }
@@ -615,8 +620,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_6_oclock_milliseconds() {
-        let data = get_6_oclock_milliseconds();
+    async fn test_get_next_fetch_milliseconds() {
+        let data = get_next_fetch_milliseconds();
         println!("Result: {}", data);
     }
 }
