@@ -163,7 +163,7 @@ async fn log_new_consumption_entry(client: &Client,
         let transfer_fee = get_consumption_transfer_fee(&time);
         let tax_fee = get_consumption_tax_fee();
         let basic_fee = get_consumption_basic_fee();
-        let energy_fee = get_consumption_energy_fee();
+        let energy_fee = get_consumption_energy_fee(price);
 
         let current_data = TimeSeriesValue {
             time: time,
@@ -228,11 +228,13 @@ async fn set_consumption_fees(client: &Client, start: &DateTime<Utc>, end: &Date
             if result.series.len() > 0 && result.series[0].values.len() > 0
             {
                 for value in result.series[0].values.iter() {
+                    let price = get_day_ahead_price(&client, &value.time).await;
+
                     let transfer_basic_fee = get_consumption_transfer_basic_fee();
                     let transfer_fee = get_consumption_transfer_fee(&value.time);
                     let tax_fee = get_consumption_tax_fee();
                     let basic_fee = get_consumption_basic_fee();
-                    let energy_fee = get_consumption_energy_fee();
+                    let energy_fee = get_consumption_energy_fee(price);
 
                     let data = TimeSeriesValue {
                         time: value.time,
@@ -378,12 +380,33 @@ fn get_consumption_tax_fee() -> f32 {
     fee
 }
 
-fn get_consumption_energy_fee() -> f32 {
-    let fee: f32 = dotenv::var("CONSUMPTION_ENERGY_FEE")
-        .map(|var| var.parse::<f32>())
-        .unwrap_or(Ok(0.0))
+fn get_consumption_energy_fee(spot_price: f32) -> f32 {
+    let stock_exchange: bool = dotenv::var("CONSUMPTION_STOCK_EXCHANGE_OR_FIXED")
+        .map(|var| var.parse::<bool>())
+        .unwrap_or(Ok(false))
         .unwrap();
-    fee
+
+    if stock_exchange {
+        let margin: f32 = dotenv::var("CONSUMPTION_STOCK_EXCHANGE_MARGIN")
+            .map(|var| var.parse::<f32>())
+            .unwrap_or(Ok(0.0))
+            .unwrap();
+
+        let tax_percentage: f32 = dotenv::var("CONSUMPTION_STOCK_EXCHANGE_TAX_MULTIPLIER")
+            .map(|var| var.parse::<f32>())
+            .unwrap_or(Ok(1.24))
+            .unwrap();
+
+        (spot_price * tax_percentage) + margin
+    }
+    else {
+        let fee: f32 = dotenv::var("CONSUMPTION_ENERGY_FEE")
+            .map(|var| var.parse::<f32>())
+            .unwrap_or(Ok(0.0))
+            .unwrap();
+
+        fee
+    }
 }
 
 fn get_production_transfer_fee() -> f32 {
