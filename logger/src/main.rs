@@ -397,7 +397,7 @@ fn get_consumption_energy_fee(spot_price: f32) -> f32 {
             .unwrap_or(Ok(1.24))
             .unwrap();
 
-        (spot_price * tax_percentage) + margin
+        (spot_price / 10.0 * tax_percentage) + margin
     }
     else {
         let fee: f32 = dotenv::var("CONSUMPTION_ENERGY_FEE")
@@ -646,6 +646,12 @@ mod tests {
     async fn test_get_next_fetch_milliseconds() {
         let data = get_next_fetch_milliseconds();
         println!("Result: {}", data);
+    }
+
+    #[tokio::test]
+    async fn test_get_consumption_energy_fee() {
+        let energy_fee = get_consumption_energy_fee(2.93);
+        println!("Result: {}", energy_fee);
     }
 }
 
