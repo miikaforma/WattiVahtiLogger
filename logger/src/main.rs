@@ -1,9 +1,9 @@
 use std::time::Duration;
 
-use api::TSV;
+use api::{SpotData, TSV};
 use api::get_consumption_data;
 use api::get_production_data;
-use chrono::NaiveDateTime;
+use chrono::{Datelike, NaiveDateTime};
 use chrono::TimeZone;
 use chrono::Timelike;
 use chrono::{DateTime, Utc};
@@ -63,6 +63,7 @@ struct PriceData {
     curve_type: String,
     timestamp: String,
     price: f32,
+    dirty: Option<i32>,
 }
 
 async fn fetch_and_log_new_production_entry(
@@ -103,6 +104,25 @@ async fn fetch_and_log_new_consumption_entry(
     }
 }
 
+async fn fetch_and_log_new_spot_data(
+    client: &Client,
+    access_token: &str,
+    metering_point_code: &str,
+    start: &str,
+    stop: &str,
+) {
+    println!("Logging new spot data {}", &metering_point_code);
+
+    match get_consumption_data(&access_token, &metering_point_code, &start, &stop).await {
+        Ok(data) => {
+            if data.getconsumptionsresult.spotdata.is_some() {
+                update_spot_data(client, &data.getconsumptionsresult.spotdata.unwrap()).await;
+            }
+        },
+        Err(err) => println!("Failed to fetch data | {}", err),
+    }
+}
+
 async fn log_new_production_entry(client: &Client, 
     meteringpointcode: &str, 
     measurementtype: &str, 
@@ -111,9 +131,15 @@ async fn log_new_production_entry(client: &Client,
         let time = &time_series_value.get_timestamp_utc();
         if time.is_none() {
             println!("Skipping logging because time couldn't be parsed");
+            return;
         }
 
-        println!("Logging production UTC: {:?} - {}", time, time_series_value.q);
+        if time_series_value.quantity.is_none() {
+            // println!("Skipping logging because quantity was null");
+            return;
+        }
+
+        println!("Logging production UTC: {:?} - {}", time, time_series_value.quantity.unwrap());
 
         let time = time.unwrap();
         let price = get_day_ahead_price(&client, &time).await;
@@ -126,7 +152,7 @@ async fn log_new_production_entry(client: &Client,
             measurementtype: measurementtype.to_string(),
             unit: unit.to_string(),
             timestamp: time.format("%Y-%m-%dT%H:%M:%S").to_string(),
-            value: time_series_value.q,
+            value: time_series_value.quantity.unwrap(),
             price: price / 1000.0,
 
             transfer_basic_fee: None,
@@ -152,9 +178,15 @@ async fn log_new_consumption_entry(client: &Client,
         let time = &time_series_value.get_timestamp_utc();
         if time.is_none() {
             println!("Skipping logging because time couldn't be parsed");
+            return;
         }
 
-        println!("Logging consumption UTC: {:?} - {}", time, time_series_value.q);
+        if time_series_value.quantity.is_none() {
+            // println!("Skipping logging because quantity was null");
+            return;
+        }
+
+        println!("Logging consumption UTC: {:?} - {}", time, time_series_value.quantity.unwrap());
 
         let time = time.unwrap();
         let price = get_day_ahead_price(&client, &time).await;
@@ -173,7 +205,7 @@ async fn log_new_consumption_entry(client: &Client,
             measurementtype: measurementtype.to_string(),
             unit: unit.to_string(),
             timestamp: time.format("%Y-%m-%dT%H:%M:%S").to_string(),
-            value: time_series_value.q,
+            value: time_series_value.quantity.unwrap(),
             price: price / 1000.0,
 
             transfer_basic_fee: Some(transfer_basic_fee),
@@ -205,7 +237,7 @@ async fn get_day_ahead_price(client: &Client, time: &DateTime<Utc>) -> f32 {
             {
                 let data = &result.series[0].values[0];
                 return data.price;
-            }            
+            }
         },
         Err(err) => {
             eprintln!("Error reading dayAheadPrices from the db: {}", err);
@@ -213,6 +245,83 @@ async fn get_day_ahead_price(client: &Client, time: &DateTime<Utc>) -> f32 {
     }
 
     0.0
+}
+
+async fn has_day_ahead_price(client: &Client, time: &DateTime<Utc>) -> bool {
+    let read_query = ReadQuery::new(format!("SELECT * FROM dayAheadPrices WHERE type_tag='A44' AND time='{}' LIMIT 1", time.to_rfc3339()));
+
+    let read_result = client
+        .json_query(read_query)
+        .await
+        .and_then(|mut db_result| db_result.deserialize_next::<PriceData>());
+
+    match read_result {
+        Ok(result) => {
+            if result.series.len() > 0 && result.series[0].values.len() > 0
+            {
+                return true;
+            }
+        },
+        Err(err) => {
+            eprintln!("Error reading dayAheadPrices from the db: {}", err);
+        }
+    }
+
+    false
+}
+
+async fn update_spot_data(client: &Client, spot_data: &SpotData) {
+    for tsv in spot_data.timeseries.values.tsv.iter() {
+        let time = tsv.get_timestamp_utc();
+        if time.is_none() {
+            println!("Skipping updating spot data because time couldn't be parsed");
+        }
+
+        let time = time.unwrap();
+        let has_price = has_day_ahead_price(&client, &time).await;
+        if !has_price {
+            let multiplier = get_spot_data_vat_multiplier();
+
+            if tsv.quantity.is_none() {
+                continue;
+            }
+
+            // There's no flag for whether the value is provided or missing, it's 0 in both cases
+            let quantity = tsv.quantity.unwrap();
+            if quantity >= 0.0 && quantity <= 0.0 {
+                break;
+            }
+
+            log_new_day_ahead_price(client, &time, quantity / multiplier).await;
+        }
+    }
+}
+
+async fn log_new_day_ahead_price(client: &Client, time: &DateTime<Utc>, price: f32) {
+    println!("Logging day ahead price UTC: {:?} - {}", time, price);
+
+    let current_data = PriceData {
+        time: *time,
+        type_tag: "A44".to_string(),
+        in_domain_tag: "10YFI-1--------U".to_string(),
+        out_domain_tag: "10YFI-1--------U".to_string(),
+        document_type: "A44".to_string(),
+        in_domain: "10YFI-1--------U".to_string(),
+        out_domain: "10YFI-1--------U".to_string(),
+        currency: "EUR".to_string(),
+        price_measure: "MWH".to_string(),
+        curve_type: "A01".to_string(),
+        timestamp: time.format("%Y-%m-%dT%H:%MZ").to_string(),
+        price: price,
+        dirty: Some(1),
+    };
+
+    let write_result = client
+        .query(&current_data.into_query("dayAheadPrices"))
+        .await;
+    if let Err(err) = write_result {
+        eprintln!("Error writing to db: {}", err)
+    }
 }
 
 async fn set_consumption_fees(client: &Client, start: &DateTime<Utc>, end: &DateTime<Utc>) {
@@ -315,6 +424,14 @@ async fn set_production_fees(client: &Client, start: &DateTime<Utc>, end: &DateT
             eprintln!("Error reading consumptions from the db: {}", err);
         }
     }
+}
+
+fn get_spot_data_vat_multiplier() -> f32 {
+    let multiplier: f32 = dotenv::var("SPOT_DATA_VAT_MULTIPLIER")
+        .map(|var| var.parse::<f32>())
+        .unwrap_or(Ok(1.0))
+        .unwrap();
+    multiplier
 }
 
 fn get_consumption_transfer_basic_fee() -> f32 {
@@ -474,12 +591,48 @@ fn get_next_fetch_milliseconds() -> i64 {
     next.timestamp_millis() - helsinki_now.timestamp_millis()
 }
 
+fn get_next_spot_fetch_milliseconds() -> i64 {
+    let helsinki_now: DateTime<Tz> = Utc::now().with_timezone(&Helsinki);
+    let mut next = helsinki_now + chrono::Duration::days(1);
+
+    let fetch_hour: u32 = dotenv::var("SPOT_FETCH_HOUR")
+        .map(|var| var.parse::<u32>())
+        .unwrap_or(Ok(14))
+        .unwrap();
+    let fetch_minutes: u32 = dotenv::var("SPOT_FETCH_MINUTES")
+        .map(|var| var.parse::<u32>())
+        .unwrap_or(Ok(15))
+        .unwrap();
+    next = next.with_hour(fetch_hour).unwrap();
+    next = next.with_minute(fetch_minutes).unwrap();
+    next = next.with_second(0).unwrap();
+
+    //next.format("%Y-%m-%dT%H:%M:%S").to_string()
+    next.timestamp_millis() - helsinki_now.timestamp_millis()
+}
+
 fn get_start_stop() -> (String, String) {
     let helsinki_now: DateTime<Tz> = Utc::now().with_timezone(&Helsinki);
 
-    let stop = helsinki_now - chrono::Duration::days(1);
+    let start = helsinki_now - chrono::Duration::days(1);
 
-    (stop.format("%Y-%m-%dT00:00:00").to_string(), helsinki_now.format("%Y-%m-%dT00:00:00").to_string())
+    (start.format("%Y-%m-%dT00:00:00").to_string(), helsinki_now.format("%Y-%m-%dT00:00:00").to_string())
+}
+
+fn get_spot_start_stop() -> (String, String) {
+    let helsinki_now: DateTime<Tz> = Utc::now().with_timezone(&Helsinki);
+
+    let start = (helsinki_now + chrono::Duration::days(1)).with_day(1).unwrap();
+
+    let mut end = start;
+    let month = start.month();
+    if month == 12 {
+        end = end.with_year(end.year() + 1).unwrap().with_month(1).unwrap();
+    } else {
+        end = end.with_month(end.month() + 1).unwrap();
+    }
+
+    (start.format("%Y-%m-%dT00:00:00").to_string(), end.format("%Y-%m-%dT00:00:00").to_string())
 }
 
 fn get_time_after_duration(duration: u64) -> String {
@@ -507,6 +660,11 @@ async fn main() {
         .unwrap();
 
     let single_mode: bool = dotenv::var("SINGLE_MODE")
+        .map(|var| var.parse::<bool>())
+        .unwrap_or(Ok(false))
+        .unwrap();
+
+    let spot_data_mode: bool = dotenv::var("SPOT_DATA_MODE")
         .map(|var| var.parse::<bool>())
         .unwrap_or(Ok(false))
         .unwrap();
@@ -543,6 +701,38 @@ async fn main() {
 
         println!("Fees changed for {} - {}, exiting in {}ms ...", start, stop, interval);
         sleep(Duration::from_millis(interval)).await;
+    }
+    else if spot_data_mode {
+        loop {
+            // If credentials provided, use those instead of the given access token (if access token was even given)
+            if !wattivahti_username.is_empty() {
+                let result = get_access_token(&wattivahti_token_endpoint, &wattivahti_username, &wattivahti_password).await;
+                if result.is_err() {
+                    println!("Logging {} - {} failed because of accessToken, waiting for the next fetch in {}ms...", start, stop, interval);
+                    sleep(Duration::from_millis(interval)).await;
+                }
+                let result = result.unwrap();
+                if result.access_token.is_none() {
+                    println!("Logging {} - {} failed because of accessToken, waiting for the next fetch in {}ms...", start, stop, interval);
+                    sleep(Duration::from_millis(interval)).await;
+                }
+                access_token = result.access_token.unwrap();
+            }
+
+            let start_stop = get_spot_start_stop();
+            fetch_and_log_new_spot_data(
+                &client,
+                &access_token,
+                &consumption_metering_point_code,
+                &start_stop.0,
+                &start_stop.1,
+            )
+                .await;
+
+            let next_fetch_interval = get_next_spot_fetch_milliseconds() as u64;
+            println!("Logging {} - {} done, waiting for the next fetch at {} ...", start_stop.0, start_stop.1, get_time_after_duration(next_fetch_interval));
+            sleep(Duration::from_millis(next_fetch_interval)).await;
+        }
     }
     else if single_mode {
         // If credentials provided, use those instead of the given access token (if access token was even given)
@@ -633,6 +823,12 @@ mod tests {
     #[tokio::test]
     async fn test_get_start_stop() {
         let data = get_start_stop();
+        println!("Result: {} - {}", data.0, data.1);
+    }
+
+    #[tokio::test]
+    async fn test_get_spot_start_stop() {
+        let data = get_spot_start_stop();
         println!("Result: {} - {}", data.0, data.1);
     }
 
