@@ -21,8 +21,11 @@ use actix_web::{middleware, web, App, HttpServer};
 
 use crate::authmodels::TokenRequest;
 use crate::authmodels::TokenResponse;
+use crate::settings::config_model::SettingsConfig;
+
 pub mod authmodels;
 mod metering;
+mod settings;
 
 #[derive(Debug, InfluxDbWriteable, Serialize, Deserialize)]
 #[allow(non_snake_case)]
@@ -70,6 +73,7 @@ struct PriceData {
 
 async fn fetch_and_log_new_production_entry(
     client: &Client,
+    config: &SettingsConfig,
     access_token: &str,
     metering_point_code: &str,
     start: &str,
@@ -80,7 +84,7 @@ async fn fetch_and_log_new_production_entry(
     match get_production_data(&access_token, &metering_point_code, &start, &stop).await {
         Ok(data) => {
             for (pos, tsv) in data.getconsumptionsresult.consumptiondata.timeseries.values.tsv.iter().enumerate() {
-                log_new_production_entry(client, &metering_point_code, "6", &data.getconsumptionsresult.consumptiondata.sum.unit, &tsv, pos).await;
+                log_new_production_entry(client, config, &metering_point_code, "6", &data.getconsumptionsresult.consumptiondata.sum.unit, &tsv, pos).await;
             }
         },
         Err(err) => println!("Failed to fetch data | {}", err),
@@ -89,6 +93,7 @@ async fn fetch_and_log_new_production_entry(
 
 async fn fetch_and_log_new_consumption_entry(
     client: &Client,
+    config: &SettingsConfig,
     access_token: &str,
     metering_point_code: &str,
     start: &str,
@@ -99,7 +104,7 @@ async fn fetch_and_log_new_consumption_entry(
     match get_consumption_data(&access_token, &metering_point_code, &start, &stop).await {
         Ok(data) => {
             for (pos, tsv) in data.getconsumptionsresult.consumptiondata.timeseries.values.tsv.iter().enumerate() {
-                log_new_consumption_entry(client, &metering_point_code, "1", &data.getconsumptionsresult.consumptiondata.sum.unit, &tsv, pos).await;
+                log_new_consumption_entry(client, config, &metering_point_code, "1", &data.getconsumptionsresult.consumptiondata.sum.unit, &tsv, pos).await;
             }
         },
         Err(err) => println!("Failed to fetch data | {}", err),
@@ -108,6 +113,7 @@ async fn fetch_and_log_new_consumption_entry(
 
 async fn fetch_and_log_new_spot_data(
     client: &Client,
+    config: &SettingsConfig,
     access_token: &str,
     metering_point_code: &str,
     start: &str,
@@ -118,7 +124,7 @@ async fn fetch_and_log_new_spot_data(
     match get_consumption_data(&access_token, &metering_point_code, &start, &stop).await {
         Ok(data) => {
             if data.getconsumptionsresult.spotdata.is_some() {
-                update_spot_data(client, &data.getconsumptionsresult.spotdata.unwrap()).await;
+                update_spot_data(client, config, &data.getconsumptionsresult.spotdata.unwrap()).await;
             }
         },
         Err(err) => println!("Failed to fetch data | {}", err),
@@ -126,6 +132,7 @@ async fn fetch_and_log_new_spot_data(
 }
 
 async fn log_new_production_entry(client: &Client,
+    config: &SettingsConfig,
     meteringpointcode: &str,
     measurementtype: &str,
     unit: &str,
@@ -146,7 +153,7 @@ async fn log_new_production_entry(client: &Client,
 
         let time = time.unwrap();
         let price = get_day_ahead_price(&client, &time).await;
-        let transfer_fee = get_production_transfer_fee();
+        let transfer_fee = config.get_production_transfer_fee(time);
         let current_data = TimeSeriesValue {
             time: time,
             meteringpointcode_tag: meteringpointcode.to_string(),
@@ -174,6 +181,7 @@ async fn log_new_production_entry(client: &Client,
 }
 
 async fn log_new_consumption_entry(client: &Client,
+    config: &SettingsConfig,
     meteringpointcode: &str,
     measurementtype: &str,
     unit: &str,
@@ -195,11 +203,11 @@ async fn log_new_consumption_entry(client: &Client,
         let time = time.unwrap();
         let price = get_day_ahead_price(&client, &time).await;
 
-        let transfer_basic_fee = get_consumption_transfer_basic_fee();
-        let transfer_fee = get_consumption_transfer_fee(&time);
-        let tax_fee = get_consumption_tax_fee();
-        let basic_fee = get_consumption_basic_fee();
-        let energy_fee = get_consumption_energy_fee(price);
+        let transfer_basic_fee = config.get_consumption_transfer_basic_fee(time);
+        let transfer_fee = config.get_consumption_transfer_fee(time);
+        let tax_fee = config.get_consumption_tax_fee(time);
+        let basic_fee = config.get_consumption_basic_fee(time);
+        let energy_fee = config.get_consumption_energy_fee(price, time);
 
         let current_data = TimeSeriesValue {
             time: time,
@@ -274,7 +282,7 @@ async fn has_day_ahead_price(client: &Client, time: &DateTime<Utc>) -> bool {
     false
 }
 
-async fn update_spot_data(client: &Client, spot_data: &SpotData) {
+async fn update_spot_data(client: &Client, config: &SettingsConfig, spot_data: &SpotData) {
     for (pos, tsv) in spot_data.timeseries.values.tsv.iter().enumerate() {
         let time = tsv.get_timestamp_utc_calculated(pos);
         if time.is_none() {
@@ -284,7 +292,7 @@ async fn update_spot_data(client: &Client, spot_data: &SpotData) {
         let time = time.unwrap();
         let has_price = has_day_ahead_price(&client, &time).await;
         if !has_price {
-            let multiplier = get_spot_data_vat_multiplier();
+            let multiplier = config.get_spot_data_vat_multiplier(time);
 
             if tsv.quantity.is_none() {
                 continue;
@@ -328,7 +336,7 @@ async fn log_new_day_ahead_price(client: &Client, time: &DateTime<Utc>, price: f
     }
 }
 
-async fn set_consumption_fees(client: &Client, start: &DateTime<Utc>, end: &DateTime<Utc>) {
+async fn set_consumption_fees(client: &Client, config: &SettingsConfig, start: &DateTime<Utc>, end: &DateTime<Utc>) {
     let read_query = ReadQuery::new(format!("SELECT * FROM consumptions WHERE time >= '{}' AND time <= '{}'", start.to_rfc3339(), end.to_rfc3339()));
 
     let read_result = client
@@ -343,11 +351,11 @@ async fn set_consumption_fees(client: &Client, start: &DateTime<Utc>, end: &Date
                 for value in result.series[0].values.iter() {
                     let price = get_day_ahead_price(&client, &value.time).await;
 
-                    let transfer_basic_fee = get_consumption_transfer_basic_fee();
-                    let transfer_fee = get_consumption_transfer_fee(&value.time);
-                    let tax_fee = get_consumption_tax_fee();
-                    let basic_fee = get_consumption_basic_fee();
-                    let energy_fee = get_consumption_energy_fee(price);
+                    let transfer_basic_fee = config.get_consumption_transfer_basic_fee(value.time);
+                    let transfer_fee = config.get_consumption_transfer_fee(value.time);
+                    let tax_fee = config.get_consumption_tax_fee(value.time);
+                    let basic_fee = config.get_consumption_basic_fee(value.time);
+                    let energy_fee = config.get_consumption_energy_fee(price, value.time);
 
                     let data = TimeSeriesValue {
                         time: value.time,
@@ -382,7 +390,7 @@ async fn set_consumption_fees(client: &Client, start: &DateTime<Utc>, end: &Date
     }
 }
 
-async fn set_production_fees(client: &Client, start: &DateTime<Utc>, end: &DateTime<Utc>) {
+async fn set_production_fees(client: &Client, config: &SettingsConfig, start: &DateTime<Utc>, end: &DateTime<Utc>) {
     let read_query = ReadQuery::new(format!("SELECT * FROM productions WHERE time >= '{}' AND time <= '{}'", start.to_rfc3339(), end.to_rfc3339()));
 
     let read_result = client
@@ -395,7 +403,7 @@ async fn set_production_fees(client: &Client, start: &DateTime<Utc>, end: &DateT
             if result.series.len() > 0 && result.series[0].values.len() > 0
             {
                 for value in result.series[0].values.iter() {
-                    let transfer_fee = get_production_transfer_fee();
+                    let transfer_fee = config.get_production_transfer_fee(value.time);
 
                     let data = TimeSeriesValue {
                         time: value.time,
@@ -428,114 +436,6 @@ async fn set_production_fees(client: &Client, start: &DateTime<Utc>, end: &DateT
             eprintln!("Error reading consumptions from the db: {}", err);
         }
     }
-}
-
-fn get_spot_data_vat_multiplier() -> f32 {
-    let multiplier: f32 = dotenv::var("SPOT_DATA_VAT_MULTIPLIER")
-        .map(|var| var.parse::<f32>())
-        .unwrap_or(Ok(1.0))
-        .unwrap();
-    multiplier
-}
-
-fn get_consumption_transfer_basic_fee() -> f32 {
-    let fee: f32 = dotenv::var("CONSUMPTION_TRANSFER_BASIC_FEE")
-        .map(|var| var.parse::<f32>())
-        .unwrap_or(Ok(0.0))
-        .unwrap();
-    fee
-}
-
-fn get_consumption_basic_fee() -> f32 {
-    let fee: f32 = dotenv::var("CONSUMPTION_BASIC_FEE")
-        .map(|var| var.parse::<f32>())
-        .unwrap_or(Ok(0.0))
-        .unwrap();
-    fee
-}
-
-fn get_consumption_transfer_fee(time: &DateTime<Utc>) -> f32 {
-    let time_or_seasonal: bool = dotenv::var("CONSUMPTION_TIME_OR_SEASONAL")
-        .map(|var| var.parse::<bool>())
-        .unwrap_or(Ok(false))
-        .unwrap();
-
-    let time_start: u32 = dotenv::var("CONSUMPTION_TIME_START")
-        .map(|var| var.parse::<u32>())
-        .unwrap_or(Ok(22))
-        .unwrap();
-    let time_end: u32 = dotenv::var("CONSUMPTION_TIME_END")
-        .map(|var| var.parse::<u32>())
-        .unwrap_or(Ok(7))
-        .unwrap();
-
-    if time_or_seasonal {
-        let local = time.with_timezone(&Helsinki);
-        let hour = local.hour();
-        if hour < time_end || hour >= time_start {
-            return dotenv::var("CONSUMPTION_TRANSFER_FEE_NIGHT")
-                .map(|var| var.parse::<f32>())
-                .unwrap_or(Ok(0.0))
-                .unwrap();
-        }
-        else {
-            return dotenv::var("CONSUMPTION_TRANSFER_FEE_DAY")
-                .map(|var| var.parse::<f32>())
-                .unwrap_or(Ok(0.0))
-                .unwrap();
-        }
-    }
-    else {
-        return dotenv::var("CONSUMPTION_TRANSFER_FEE")
-            .map(|var| var.parse::<f32>())
-            .unwrap_or(Ok(0.0))
-            .unwrap();
-    }
-}
-
-fn get_consumption_tax_fee() -> f32 {
-    let fee: f32 = dotenv::var("CONSUMPTION_TAX_FEE")
-        .map(|var| var.parse::<f32>())
-        .unwrap_or(Ok(0.0))
-        .unwrap();
-    fee
-}
-
-fn get_consumption_energy_fee(spot_price: f32) -> f32 {
-    let stock_exchange: bool = dotenv::var("CONSUMPTION_STOCK_EXCHANGE_OR_FIXED")
-        .map(|var| var.parse::<bool>())
-        .unwrap_or(Ok(false))
-        .unwrap();
-
-    if stock_exchange {
-        let margin: f32 = dotenv::var("CONSUMPTION_STOCK_EXCHANGE_MARGIN")
-            .map(|var| var.parse::<f32>())
-            .unwrap_or(Ok(0.0))
-            .unwrap();
-
-        let tax_percentage: f32 = dotenv::var("CONSUMPTION_STOCK_EXCHANGE_TAX_MULTIPLIER")
-            .map(|var| var.parse::<f32>())
-            .unwrap_or(Ok(1.24))
-            .unwrap();
-
-        (spot_price / 10.0 * tax_percentage) + margin
-    }
-    else {
-        let fee: f32 = dotenv::var("CONSUMPTION_ENERGY_FEE")
-            .map(|var| var.parse::<f32>())
-            .unwrap_or(Ok(0.0))
-            .unwrap();
-
-        fee
-    }
-}
-
-fn get_production_transfer_fee() -> f32 {
-    let fee: f32 = dotenv::var("PRODUCTION_TRANSFER_FEE")
-        .map(|var| var.parse::<f32>())
-        .unwrap_or(Ok(0.0))
-        .unwrap();
-    fee
 }
 
 fn parse_time_to_utc(time: &str) -> DateTime<Utc> {
@@ -650,6 +550,9 @@ fn get_time_after_duration(duration: u64) -> String {
 async fn main() {
     dotenv().ok();
 
+    let config = settings::config::load_settings(format!("configs/{}.yaml", "production"))
+        .expect("Failed to load settings file.");
+
     let database_url = dotenv::var("DATABASE_URL").unwrap_or("http://localhost:8086".to_string());
     let database_name = dotenv::var("DATABASE_NAME").unwrap_or("wattivahti".to_string());
 
@@ -696,6 +599,7 @@ async fn main() {
 
         set_consumption_fees(
             &client,
+            &config,
             &start,
             &stop,
         )
@@ -703,6 +607,7 @@ async fn main() {
 
         set_production_fees(
             &client,
+            &config,
             &start,
             &stop,
         )
@@ -754,6 +659,7 @@ async fn main() {
             let start_stop = get_spot_start_stop();
             fetch_and_log_new_spot_data(
                 &client,
+                &config,
                 &access_token,
                 &consumption_metering_point_code,
                 &start_stop.0,
@@ -784,6 +690,7 @@ async fn main() {
 
         fetch_and_log_new_production_entry(
             &client,
+            &config,
             &access_token,
             &production_metering_point_code,
             &start,
@@ -793,6 +700,7 @@ async fn main() {
 
         fetch_and_log_new_consumption_entry(
             &client,
+            &config,
             &access_token,
             &consumption_metering_point_code,
             &start,
@@ -825,6 +733,7 @@ async fn main() {
             let start_stop = get_start_stop();
             fetch_and_log_new_production_entry(
                 &client,
+                &config,
                 &access_token,
                 &production_metering_point_code,
                 &start_stop.0,
@@ -834,6 +743,7 @@ async fn main() {
 
             fetch_and_log_new_consumption_entry(
                 &client,
+                &config,
                 &access_token,
                 &consumption_metering_point_code,
                 &start_stop.0,
@@ -878,7 +788,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_consumption_energy_fee() {
-        let energy_fee = get_consumption_energy_fee(2.93);
+        let config = settings::config::load_settings(format!("configs/{}.yaml", "test"))
+            .expect("Failed to load settings file.");
+
+        let dt = DateTime::<Utc>::from_utc(NaiveDateTime::parse_from_str("2019-12-31T22:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(), Utc);
+        let energy_fee = config.get_consumption_energy_fee(2.93, dt);
         println!("Result: {}", energy_fee);
     }
 }

@@ -1,4 +1,4 @@
-use crate::{fetch_and_log_new_consumption_entry, fetch_and_log_new_production_entry, get_access_token};
+use crate::{fetch_and_log_new_consumption_entry, fetch_and_log_new_production_entry, get_access_token, settings};
 use actix_web::{post, web, HttpResponse, Responder};
 use serde::{Deserialize};
 
@@ -11,6 +11,9 @@ pub struct TimeParams {
 /// Update metering data `/metering`
 #[post("/metering")]
 pub async fn metering_update(params: web::Json<TimeParams>, client: web::Data<influxdb::Client>) -> impl Responder {
+    let config = settings::config::load_settings(format!("configs/{}.yaml", "production"))
+        .expect("Failed to load settings file.");
+
     let mut access_token = dotenv::var("ACCESS_TOKEN").unwrap_or("".to_string());
     let wattivahti_username = dotenv::var("WATTIVAHTI_USERNAME").unwrap_or("".to_string());
     let wattivahti_password = dotenv::var("WATTIVAHTI_PASSWORD").unwrap_or("".to_string());
@@ -33,6 +36,7 @@ pub async fn metering_update(params: web::Json<TimeParams>, client: web::Data<in
 
     fetch_and_log_new_production_entry(
         &client,
+        &config,
         &access_token,
         &production_metering_point_code,
         &params.start,
@@ -42,6 +46,7 @@ pub async fn metering_update(params: web::Json<TimeParams>, client: web::Data<in
 
     fetch_and_log_new_consumption_entry(
         &client,
+        &config,
         &access_token,
         &consumption_metering_point_code,
         &params.start,
