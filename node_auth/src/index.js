@@ -1,4 +1,5 @@
 const puppeteer = require('puppeteer');
+const cache = require('memory-cache');
 
 // Require the framework and instantiate it
 const fastify = require('fastify')({ logger: true })
@@ -7,6 +8,7 @@ const fastify = require('fastify')({ logger: true })
 fastify.post('/wattivahti/token', async (request, reply) => {
     const username = request.body.username;
     const password = request.body.password;
+    const skipCache = request.body.skipCache;
 
     if (!username || !password) {
         reply
@@ -14,6 +16,11 @@ fastify.post('/wattivahti/token', async (request, reply) => {
             .header('Content-Type', 'application/json; charset=utf-8')
             .send({ status: 'error', message: 'username and password are required' });
         return;
+    }
+
+    const cachedToken = cache.get(`${username}_accessToken`);
+    if (cachedToken && !skipCache) {
+        return { status: "ok", accessToken: cachedToken }
     }
 
     const browser = await puppeteer.launch({
@@ -84,6 +91,10 @@ fastify.post('/wattivahti/token', async (request, reply) => {
             .send({ status: 'error', message: 'Fetching the access token failed.' });
         return;
     }
+
+    cache.put(`${username}_accessToken`, accessToken, 1_800_000, function(key, value) {
+        console.log(`${key} cache timeout`);
+    });
 
     return { status: "ok", accessToken: accessToken }
 });

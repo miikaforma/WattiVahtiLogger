@@ -64,6 +64,10 @@ pub async fn get_consumption_data(access_token: &str, metering_point_code: &str,
 
 #[cfg(test)]
 mod tests {
+    use chrono::TimeZone;
+    use chrono::{NaiveDateTime, DateTime, Utc};
+    use chrono_tz::Europe::Helsinki;
+    use chrono::Duration as ChronoDuration;
     use super::*;
 
     #[tokio::test]
@@ -285,5 +289,148 @@ mod tests {
         println!("Start: {:#?}", data.getconsumptionsresult.consumptiondata.sum.get_start_utc());
         println!("Stop: {:#?}", data.getconsumptionsresult.consumptiondata.sum.get_stop_utc());
         println!("Has spot data: {:#?}", data.getconsumptionsresult.spotdata.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_production_data_with_daylight_savings() {
+        dotenv().ok();
+
+        let data_str = r#"
+        {
+            "getconsumptionsresult": {
+                "consumptiondata": {
+                    "meteringpointcode": "1337",
+                    "sum": {
+                        "quantity": 0.0,
+                        "start": "2023-03-26T00:00:00",
+                        "stop": "2023-03-27T00:00:00",
+                        "unit": "kWh"
+                    },
+                    "timeseries": {
+                        "start": "2023-03-26T00:00:00",
+                        "stop": "2023-03-27T00:00:00",
+                        "resolution": "PT1H",
+                        "values": {
+                            "tsv": [
+                                {
+                                    "quantity": 0.0,
+                                    "time": "2023-03-26T00:00:00",
+                                    "day": 0,
+                                    "night": 0,
+                                    "start": "2023-03-01T00:00:00",
+                                    "stop": "2023-04-01T00:00:00",
+                                    "unit": "EUR/MWh"
+                                },
+                                {
+                                    "quantity": 0.0,
+                                    "time": "2023-03-26T01:00:00",
+                                    "day": 0,
+                                    "night": 0,
+                                    "start": "2023-03-01T00:00:00",
+                                    "stop": "2023-04-01T00:00:00",
+                                    "unit": "EUR/MWh"
+                                },
+                                {
+                                    "quantity": 0.0,
+                                    "time": "2023-03-26T02:00:00",
+                                    "day": 0,
+                                    "night": 0,
+                                    "start": "2023-03-01T00:00:00",
+                                    "stop": "2023-04-01T00:00:00",
+                                    "unit": "EUR/MWh"
+                                },
+                                {
+                                    "quantity": 0.0,
+                                    "time": "2023-03-26T03:00:00",
+                                    "day": 0,
+                                    "night": 0,
+                                    "start": "2023-03-01T00:00:00",
+                                    "stop": "2023-04-01T00:00:00",
+                                    "unit": "EUR/MWh"
+                                },
+                                {
+                                    "quantity": 0.0,
+                                    "time": "2023-03-26T04:00:00",
+                                    "day": 0,
+                                    "night": 0,
+                                    "start": "2023-03-01T00:00:00",
+                                    "stop": "2023-04-01T00:00:00",
+                                    "unit": "EUR/MWh"
+                                },
+                                {
+                                    "quantity": 0.0,
+                                    "time": "2023-03-26T05:00:00",
+                                    "day": 0,
+                                    "night": 0,
+                                    "start": "2023-03-01T00:00:00",
+                                    "stop": "2023-04-01T00:00:00",
+                                    "unit": "EUR/MWh"
+                                },
+                                {
+                                    "quantity": 0.0,
+                                    "time": "2023-03-26T07:00:00",
+                                    "day": 0,
+                                    "night": 0,
+                                    "start": "2023-03-01T00:00:00",
+                                    "stop": "2023-04-01T00:00:00",
+                                    "unit": "EUR/MWh"
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }"#;
+
+        let data: ConsumptionsResult = serde_json::from_str(&data_str).unwrap();
+        println!("ConsumptionResult: {:#?}", data);
+        println!("Start: {:#?}", data.getconsumptionsresult.consumptiondata.sum.get_start_utc());
+        println!("Stop: {:#?}", data.getconsumptionsresult.consumptiondata.sum.get_stop_utc());
+        println!("Has spot data: {:#?}", data.getconsumptionsresult.spotdata.is_some());
+
+        for (pos, tsv) in data.getconsumptionsresult.consumptiondata.timeseries.values.tsv.iter().enumerate() {
+            let time = &tsv.get_timestamp_utc_calculated(pos);
+            if time.is_none() {
+                println!("Time couldn't be parsed");
+                return;
+            }
+
+            println!("Logging production UTC: {:?}", time);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_daylight_savings() {
+        dotenv().ok();
+
+        let time = "2022-03-27T03:00:00";
+        // let time = "2023-03-26T04:00:00";
+        let naive_time = NaiveDateTime::parse_from_str(&time, "%Y-%m-%dT%H:%M:%S");
+        println!("System Time UTC {}", naive_time.unwrap());
+
+        let converted = Utc.from_utc_datetime(&Helsinki.from_local_datetime(&naive_time.unwrap())
+            .unwrap()
+            .naive_utc());
+
+        println!("Converted Time Helsinki {}", converted);
+    }
+
+    #[tokio::test]
+    async fn test_daylight_savings_2() {
+        dotenv().ok();
+
+        let start = "2022-03-01T00:00:00";
+        let naive_time = NaiveDateTime::parse_from_str(&start, "%Y-%m-%dT%H:%M:%S");
+        println!("System Time Helsinki {}", naive_time.unwrap());
+
+        let converted : DateTime<Utc> = Utc.from_utc_datetime(&Helsinki.from_local_datetime(&naive_time.unwrap())
+            .unwrap()
+            .naive_utc());
+
+        println!("Converted Time UTC {}", converted);
+
+        let new_date : DateTime<Utc> = converted + ChronoDuration::hours(627);
+
+        println!("Converted Time UTC + n hours {}", new_date);
     }
 }

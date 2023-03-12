@@ -17,10 +17,12 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::time::sleep;
+use actix_web::{middleware, web, App, HttpServer};
 
 use crate::authmodels::TokenRequest;
 use crate::authmodels::TokenResponse;
 pub mod authmodels;
+mod metering;
 
 #[derive(Debug, InfluxDbWriteable, Serialize, Deserialize)]
 #[allow(non_snake_case)]
@@ -69,16 +71,16 @@ struct PriceData {
 async fn fetch_and_log_new_production_entry(
     client: &Client,
     access_token: &str,
-    metering_point_code: &str, 
-    start: &str, 
+    metering_point_code: &str,
+    start: &str,
     stop: &str,
 ) {
-    println!("Logging new production entry for {}", &metering_point_code);
+    println!("Logging new production entry for {} at {} - {}", &metering_point_code, &start, &stop);
 
     match get_production_data(&access_token, &metering_point_code, &start, &stop).await {
         Ok(data) => {
-            for tsv in data.getconsumptionsresult.consumptiondata.timeseries.values.tsv.iter() {
-                log_new_production_entry(client, &metering_point_code, "6", &data.getconsumptionsresult.consumptiondata.sum.unit, &tsv).await;
+            for (pos, tsv) in data.getconsumptionsresult.consumptiondata.timeseries.values.tsv.iter().enumerate() {
+                log_new_production_entry(client, &metering_point_code, "6", &data.getconsumptionsresult.consumptiondata.sum.unit, &tsv, pos).await;
             }
         },
         Err(err) => println!("Failed to fetch data | {}", err),
@@ -88,16 +90,16 @@ async fn fetch_and_log_new_production_entry(
 async fn fetch_and_log_new_consumption_entry(
     client: &Client,
     access_token: &str,
-    metering_point_code: &str, 
-    start: &str, 
+    metering_point_code: &str,
+    start: &str,
     stop: &str,
 ) {
-    println!("Logging new consumption entry for {}", &metering_point_code);
+    println!("Logging new consumption entry for {} at {} - {}", &metering_point_code, &start, &stop);
 
     match get_consumption_data(&access_token, &metering_point_code, &start, &stop).await {
         Ok(data) => {
-            for tsv in data.getconsumptionsresult.consumptiondata.timeseries.values.tsv.iter() {
-                log_new_consumption_entry(client, &metering_point_code, "1", &data.getconsumptionsresult.consumptiondata.sum.unit, &tsv).await;
+            for (pos, tsv) in data.getconsumptionsresult.consumptiondata.timeseries.values.tsv.iter().enumerate() {
+                log_new_consumption_entry(client, &metering_point_code, "1", &data.getconsumptionsresult.consumptiondata.sum.unit, &tsv, pos).await;
             }
         },
         Err(err) => println!("Failed to fetch data | {}", err),
@@ -123,12 +125,13 @@ async fn fetch_and_log_new_spot_data(
     }
 }
 
-async fn log_new_production_entry(client: &Client, 
-    meteringpointcode: &str, 
-    measurementtype: &str, 
-    unit: &str, 
-    time_series_value: &TSV) {
-        let time = &time_series_value.get_timestamp_utc();
+async fn log_new_production_entry(client: &Client,
+    meteringpointcode: &str,
+    measurementtype: &str,
+    unit: &str,
+    time_series_value: &TSV,
+    pos: usize) {
+        let time = &time_series_value.get_timestamp_utc_calculated(pos);
         if time.is_none() {
             println!("Skipping logging because time couldn't be parsed");
             return;
@@ -170,12 +173,13 @@ async fn log_new_production_entry(client: &Client,
         }
 }
 
-async fn log_new_consumption_entry(client: &Client, 
-    meteringpointcode: &str, 
-    measurementtype: &str, 
-    unit: &str, 
-    time_series_value: &TSV) {
-        let time = &time_series_value.get_timestamp_utc();
+async fn log_new_consumption_entry(client: &Client,
+    meteringpointcode: &str,
+    measurementtype: &str,
+    unit: &str,
+    time_series_value: &TSV,
+    pos: usize) {
+        let time = &time_series_value.get_timestamp_utc_calculated(pos);
         if time.is_none() {
             println!("Skipping logging because time couldn't be parsed");
             return;
@@ -230,7 +234,7 @@ async fn get_day_ahead_price(client: &Client, time: &DateTime<Utc>) -> f32 {
         .json_query(read_query)
         .await
         .and_then(|mut db_result| db_result.deserialize_next::<PriceData>());
-        
+
     match read_result {
         Ok(result) => {
             if result.series.len() > 0 && result.series[0].values.len() > 0
@@ -271,8 +275,8 @@ async fn has_day_ahead_price(client: &Client, time: &DateTime<Utc>) -> bool {
 }
 
 async fn update_spot_data(client: &Client, spot_data: &SpotData) {
-    for tsv in spot_data.timeseries.values.tsv.iter() {
-        let time = tsv.get_timestamp_utc();
+    for (pos, tsv) in spot_data.timeseries.values.tsv.iter().enumerate() {
+        let time = tsv.get_timestamp_utc_calculated(pos);
         if time.is_none() {
             println!("Skipping updating spot data because time couldn't be parsed");
         }
@@ -331,7 +335,7 @@ async fn set_consumption_fees(client: &Client, start: &DateTime<Utc>, end: &Date
         .json_query(read_query)
         .await
         .and_then(|mut db_result| db_result.deserialize_next::<TimeSeriesValue>());
-        
+
     match read_result {
         Ok(result) => {
             if result.series.len() > 0 && result.series[0].values.len() > 0
@@ -355,7 +359,7 @@ async fn set_consumption_fees(client: &Client, start: &DateTime<Utc>, end: &Date
                         timestamp: value.timestamp.to_string(),
                         value: value.value,
                         price: value.price,
-            
+
                         transfer_basic_fee: Some(transfer_basic_fee),
                         transfer_fee: Some(transfer_fee),
                         tax_fee: Some(tax_fee),
@@ -370,7 +374,7 @@ async fn set_consumption_fees(client: &Client, start: &DateTime<Utc>, end: &Date
                         eprintln!("Error writing to db: {}", err)
                     }
                 }
-            }            
+            }
         },
         Err(err) => {
             eprintln!("Error reading consumptions from the db: {}", err);
@@ -385,7 +389,7 @@ async fn set_production_fees(client: &Client, start: &DateTime<Utc>, end: &DateT
         .json_query(read_query)
         .await
         .and_then(|mut db_result| db_result.deserialize_next::<TimeSeriesValue>());
-        
+
     match read_result {
         Ok(result) => {
             if result.series.len() > 0 && result.series[0].values.len() > 0
@@ -403,7 +407,7 @@ async fn set_production_fees(client: &Client, start: &DateTime<Utc>, end: &DateT
                         timestamp: value.timestamp.to_string(),
                         value: value.value,
                         price: value.price,
-            
+
                         transfer_basic_fee: None,
                         transfer_fee: Some(transfer_fee),
                         tax_fee: None,
@@ -418,7 +422,7 @@ async fn set_production_fees(client: &Client, start: &DateTime<Utc>, end: &DateT
                         eprintln!("Error writing to db: {}", err)
                     }
                 }
-            }            
+            }
         },
         Err(err) => {
             eprintln!("Error reading consumptions from the db: {}", err);
@@ -669,6 +673,11 @@ async fn main() {
         .unwrap_or(Ok(false))
         .unwrap();
 
+    let rest_mode: bool = dotenv::var("REST_MODE")
+        .map(|var| var.parse::<bool>())
+        .unwrap_or(Ok(false))
+        .unwrap();
+
     let mut access_token = dotenv::var("ACCESS_TOKEN").unwrap_or("".to_string());
     let wattivahti_username = dotenv::var("WATTIVAHTI_USERNAME").unwrap_or("".to_string());
     let wattivahti_password = dotenv::var("WATTIVAHTI_PASSWORD").unwrap_or("".to_string());
@@ -701,6 +710,29 @@ async fn main() {
 
         println!("Fees changed for {} - {}, exiting in {}ms ...", start, stop, interval);
         sleep(Duration::from_millis(interval)).await;
+    }
+    else if rest_mode {
+        let server = match HttpServer::new(move || {
+            App::new()
+                .wrap(middleware::Compress::default())
+                .app_data(web::Data::new(client.clone()))
+                // register HTTP requests handlers
+                .service(metering::metering_update)
+        })
+            .bind("0.0.0.0:9090")
+        {
+            Ok(value) => {
+                println!("REST API started at 0.0.0.0:9090");
+                value
+            },
+            Err(error) => panic!("Error binding to socket:{:?}", error),
+        };
+
+        let _ = server
+            .run()
+            .await;
+
+        return;
     }
     else if spot_data_mode {
         loop {
@@ -799,7 +831,7 @@ async fn main() {
                 &start_stop.1,
             )
             .await;
-    
+
             fetch_and_log_new_consumption_entry(
                 &client,
                 &access_token,
@@ -808,7 +840,7 @@ async fn main() {
                 &start_stop.1,
             )
             .await;
-    
+
             let next_fetch_interval = get_next_fetch_milliseconds() as u64;
             println!("Logging {} - {} done, waiting for the next fetch at {} ...", start_stop.0, start_stop.1, get_time_after_duration(next_fetch_interval));
             sleep(Duration::from_millis(next_fetch_interval)).await;
