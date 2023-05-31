@@ -356,6 +356,11 @@ impl EnergyFeeSetting {
             }
 
             let config = self.stock_exchange_config.as_ref().unwrap();
+
+            if spot_price < 0.0 {
+                return (spot_price / 10.0) + config.margin
+            }
+
             return (spot_price / 10.0 * config.tax_multiplier) + config.margin
         }
 

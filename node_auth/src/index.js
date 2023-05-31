@@ -80,6 +80,17 @@ fastify.post('/wattivahti/token', async (request, reply) => {
         }
     }
 
+    if (!accessToken || accessToken === "") {
+        for (const [key, value] of Object.entries(localStorage)) {
+            if (key.includes("-accesstoken-")) {
+                const data = JSON.parse(value);
+                if (data.secret) {
+                    accessToken = data.secret;
+                }
+            }
+        }
+    }
+
     // await page.screenshot({ path: 'example.png' });
 
     await browser.close();
