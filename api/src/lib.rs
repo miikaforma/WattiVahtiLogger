@@ -9,9 +9,8 @@ const API_URL: &str = r#"https://porienergia-prod-agent.frendsapp.com:9999/api/o
 pub async fn get_production_data(access_token: &str, metering_point_code: &str, start: &str, stop: &str) -> Result<ConsumptionsResult, anyhow::Error> {
     let res = reqwest::Client::new()
         .get(format!("{}meterdata2?meteringPointCode={}&measurementType=6&start={}&stop={}&resultStep=PT1H", API_URL, metering_point_code, start, stop))
-        .header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:105.0) Gecko/20100101 Firefox/109.0")
+        .header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/113.0")
         .header(AUTHORIZATION, format!("Bearer {}", access_token))
-        .header("Host", "porienergia-prod-agent.frendsapp.com:9999")
         .header("Origin", "https://www.wattivahti.fi")
         .header("Referer", "https://www.wattivahti.fi/")
         .send()
@@ -37,9 +36,8 @@ pub async fn get_production_data(access_token: &str, metering_point_code: &str, 
 pub async fn get_consumption_data(access_token: &str, metering_point_code: &str, start: &str, stop: &str) -> Result<ConsumptionsResult, anyhow::Error> {
     let res = reqwest::Client::new()
         .get(format!("{}meterdata2?meteringPointCode={}&measurementType=1&start={}&stop={}&resultStep=PT1H", API_URL, metering_point_code, start, stop))
-        .header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:105.0) Gecko/20100101 Firefox/109.0")
+        .header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/113.0")
         .header(AUTHORIZATION, format!("Bearer {}", access_token))
-        .header("Host", "porienergia-prod-agent.frendsapp.com:9999")
         .header("Origin", "https://www.wattivahti.fi")
         .header("Referer", "https://www.wattivahti.fi/")
         .send()
