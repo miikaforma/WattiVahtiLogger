@@ -217,9 +217,14 @@ jobs:
           cache-to: type=gha,mode=max
 
   multiarch_logger:
-    needs: [x86, arm64]
+    needs: [buildVariables, x86, arm64]
     name: Create a new multiarch tag for logger
     runs-on: ubuntu-latest
+    env:
+      TAG_VERSION: ${{ needs.buildVariables.outputs.tag_version }}
+      RELEASE_VERSION: ${{ needs.buildVariables.outputs.release_version }}
+      COMMIT_BRANCH: ${{ needs.buildVariables.outputs.commit_branch }}
+      COMMIT_HASH: ${{ needs.buildVariables.outputs.commit_hash }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
