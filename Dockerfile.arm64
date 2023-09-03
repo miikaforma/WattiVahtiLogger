@@ -16,7 +16,7 @@ COPY ./logger/src ./src
 RUN cargo install --target aarch64-unknown-linux-gnu --path .
 
 # Bundle Stage
-FROM debian:buster-slim
+FROM debian:bullseye
 
 COPY --from=builder /usr/local/cargo/bin/logger .
 USER 1000
