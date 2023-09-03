@@ -487,8 +487,12 @@ fn get_next_fetch_milliseconds() -> i64 {
         .map(|var| var.parse::<u32>())
         .unwrap_or(Ok(6))
         .unwrap();
+    let fetch_minutes: u32 = dotenv::var("FETCH_MINUTES")
+        .map(|var| var.parse::<u32>())
+        .unwrap_or(Ok(0))
+        .unwrap();
     next = next.with_hour(fetch_hour).unwrap();
-    next = next.with_minute(0).unwrap();
+    next = next.with_minute(fetch_minutes).unwrap();
     next = next.with_second(0).unwrap();
 
     //next.format("%Y-%m-%dT%H:%M:%S").to_string()
