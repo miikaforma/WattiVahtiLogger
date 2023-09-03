@@ -135,14 +135,14 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push
-        id: backend_build
+        id: x86_build
         uses: docker/build-push-action@v4
         with:
           context: .
           platforms: linux/amd64
           file: ./Dockerfile
           push: ${{ inputs.push }}
-          tags: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:${{ env.RELEASE_VERSION }},${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:latest
+          tags: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:amd64-${{ env.RELEASE_VERSION }},${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:amd64-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -170,7 +170,7 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push
-        id: backend_build
+        id: arm64_build
         uses: docker/build-push-action@v4
         with:
           context: .
@@ -205,7 +205,7 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push
-        id: backend_build
+        id: auth_build
         uses: docker/build-push-action@v4
         with:
           context: ./node_auth
@@ -215,6 +215,24 @@ jobs:
           tags: ${{ secrets.DOCKER_USERNAME }}/wattivahti-auth:${{ env.RELEASE_VERSION }},${{ secrets.DOCKER_USERNAME }}/wattivahti-auth:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  multiarch_logger:
+    needs: [x86, arm64]
+    name: Create a new multiarch tag for logger
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create and push manifest images for version
+        uses: Noelware/docker-manifest-action@0.4.0
+        with:
+            inputs: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:${{ env.RELEASE_VERSION }}
+            images: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:amd64-${{ env.RELEASE_VERSION }},${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:arm64-${{ env.RELEASE_VERSION }}
+            push: true
+      - name: Create and push manifest images for latest
+        uses: Noelware/docker-manifest-action@0.4.0
+        with:
+            inputs: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:latest
+            images: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:amd64-latest,${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:arm64-latest
+            push: true
 
   create_release:
     needs: [buildVariables, x86, arm64, auth]
