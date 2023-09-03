@@ -139,6 +139,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
+          platforms: linux/amd64
           file: ./Dockerfile
           push: ${{ inputs.push }}
           tags: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:${{ env.RELEASE_VERSION }},${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:latest
@@ -148,7 +149,7 @@ jobs:
   arm64:
     name: "Build and push arm64 wattivahti-logger"
     needs: [buildVariables]
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-arm64
     env:
       TAG_VERSION: ${{ needs.buildVariables.outputs.tag_version }}
       RELEASE_VERSION: ${{ needs.buildVariables.outputs.release_version }}
@@ -173,6 +174,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
+          platforms: linux/arm64
           file: ./Dockerfile.arm64
           push: ${{ inputs.push }}
           tags: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:arm64-${{ env.RELEASE_VERSION }},${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:arm64-latest
