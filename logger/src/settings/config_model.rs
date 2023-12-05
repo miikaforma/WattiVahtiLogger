@@ -356,8 +356,9 @@ impl EnergyFeeSetting {
             }
 
             let config = self.stock_exchange_config.as_ref().unwrap();
+            let no_tax_for_negative = config.negative_no_tax.unwrap_or(false);
 
-            if spot_price < 0.0 {
+            if no_tax_for_negative && spot_price < 0.0 {
                 return (spot_price / 10.0) + config.margin
             }
 
@@ -379,6 +380,7 @@ impl EnergyFeeSetting {
 pub struct StockExchangeSetting {
     margin: f32,
     tax_multiplier: f32,
+    negative_no_tax: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
