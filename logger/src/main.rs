@@ -18,6 +18,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::time::sleep;
 use actix_web::{middleware, web, App, HttpServer};
+use tracing::{info, error, warn, Level};
+use tracing_subscriber::FmtSubscriber;
 
 use crate::authmodels::TokenRequest;
 use crate::authmodels::TokenResponse;
@@ -48,6 +50,10 @@ struct TimeSeriesValue {
     tax_fee: Option<f32>,
     basic_fee: Option<f32>,
     energy_fee: Option<f32>,
+
+    contract_type: i8,
+    spot_margin: Option<f32>,
+    tax_multiplier: Option<f32>,
 }
 
 #[derive(Debug, InfluxDbWriteable, Serialize, Deserialize)]
@@ -79,7 +85,7 @@ async fn fetch_and_log_new_production_entry(
     start: &str,
     stop: &str,
 ) {
-    println!("Logging new production entry for {} at {} - {}", &metering_point_code, &start, &stop);
+    info!("Logging new production entry for {} at {} - {}", &metering_point_code, &start, &stop);
 
     match get_production_data(&access_token, &metering_point_code, &start, &stop).await {
         Ok(data) => {
@@ -87,7 +93,7 @@ async fn fetch_and_log_new_production_entry(
                 log_new_production_entry(client, config, &metering_point_code, "6", &data.getconsumptionsresult.consumptiondata.sum.unit, &tsv, pos).await;
             }
         },
-        Err(err) => println!("Failed to fetch data | {}", err),
+        Err(err) => error!("Failed to fetch data | {}", err),
     }
 }
 
@@ -99,7 +105,7 @@ async fn fetch_and_log_new_consumption_entry(
     start: &str,
     stop: &str,
 ) {
-    println!("Logging new consumption entry for {} at {} - {}", &metering_point_code, &start, &stop);
+    info!("Logging new consumption entry for {} at {} - {}", &metering_point_code, &start, &stop);
 
     match get_consumption_data(&access_token, &metering_point_code, &start, &stop).await {
         Ok(data) => {
@@ -107,7 +113,7 @@ async fn fetch_and_log_new_consumption_entry(
                 log_new_consumption_entry(client, config, &metering_point_code, "1", &data.getconsumptionsresult.consumptiondata.sum.unit, &tsv, pos).await;
             }
         },
-        Err(err) => println!("Failed to fetch data | {}", err),
+        Err(err) => error!("Failed to fetch data | {}", err),
     }
 }
 
@@ -119,7 +125,7 @@ async fn fetch_and_log_new_spot_data(
     start: &str,
     stop: &str,
 ) {
-    println!("Logging new spot data {}", &metering_point_code);
+    info!("Logging new spot data {}", &metering_point_code);
 
     match get_consumption_data(&access_token, &metering_point_code, &start, &stop).await {
         Ok(data) => {
@@ -127,7 +133,7 @@ async fn fetch_and_log_new_spot_data(
                 update_spot_data(client, config, &data.getconsumptionsresult.spotdata.unwrap()).await;
             }
         },
-        Err(err) => println!("Failed to fetch data | {}", err),
+        Err(err) => error!("Failed to fetch data | {}", err),
     }
 }
 
@@ -140,20 +146,27 @@ async fn log_new_production_entry(client: &Client,
     pos: usize) {
         let time = &time_series_value.get_timestamp_utc_calculated(pos);
         if time.is_none() {
-            println!("Skipping logging because time couldn't be parsed");
+            warn!("Skipping logging because time couldn't be parsed");
             return;
         }
 
         if time_series_value.quantity.is_none() {
-            // println!("Skipping logging because quantity was null");
+            // warn!("Skipping logging because quantity was null");
             return;
         }
 
-        println!("Logging production UTC: {:?} - {}", time, time_series_value.quantity.unwrap());
+        info!("Logging production UTC: {:?} - {}", time, time_series_value.quantity.unwrap());
 
         let time = time.unwrap();
         let price = get_day_ahead_price(&client, &time).await;
-        let transfer_fee = config.get_production_transfer_fee(time);
+        let contract = config.get_contract(time);
+        if contract.is_none() {
+            warn!("Skipping production logging because contract couldn't be found");
+            return;
+        }
+        let contract = contract.unwrap();
+        let transfer_fee = contract.get_production_transfer_fee();
+
         let current_data = TimeSeriesValue {
             time: time,
             meteringpointcode_tag: meteringpointcode.to_string(),
@@ -170,13 +183,17 @@ async fn log_new_production_entry(client: &Client,
             tax_fee: None,
             basic_fee: None,
             energy_fee: None,
+
+            contract_type: contract.contract_type.clone().into(),
+            spot_margin: None,
+            tax_multiplier: Some(0.0),
         };
 
         let write_result = client
             .query(&current_data.into_query("productions"))
             .await;
         if let Err(err) = write_result {
-            eprintln!("Error writing to db: {}", err)
+            error!("Error writing to db: {}", err)
         }
 }
 
@@ -189,25 +206,30 @@ async fn log_new_consumption_entry(client: &Client,
     pos: usize) {
         let time = &time_series_value.get_timestamp_utc_calculated(pos);
         if time.is_none() {
-            println!("Skipping logging because time couldn't be parsed");
+            warn!("Skipping logging because time couldn't be parsed");
             return;
         }
 
         if time_series_value.quantity.is_none() {
-            // println!("Skipping logging because quantity was null");
+            // warn!("Skipping logging because quantity was null");
             return;
         }
 
-        println!("Logging consumption UTC: {:?} - {}", time, time_series_value.quantity.unwrap());
+        info!("Logging consumption UTC: {:?} - {}", time, time_series_value.quantity.unwrap());
 
         let time = time.unwrap();
         let price = get_day_ahead_price(&client, &time).await;
-
-        let transfer_basic_fee = config.get_consumption_transfer_basic_fee(time);
-        let transfer_fee = config.get_consumption_transfer_fee(time);
-        let tax_fee = config.get_consumption_tax_fee(time);
-        let basic_fee = config.get_consumption_basic_fee(time);
-        let energy_fee = config.get_consumption_energy_fee(price, time);
+        let contract = config.get_contract(time);
+        if contract.is_none() {
+            warn!("Skipping logging because contract couldn't be found");
+            return;
+        }
+        let contract = contract.unwrap();
+        let transfer_basic_fee = contract.get_consumption_transfer_basic_fee();
+        let transfer_fee = contract.get_consumption_transfer_fee(time);
+        let tax_fee = contract.get_consumption_transfer_tax_fee();
+        let basic_fee = contract.get_consumption_basic_fee();
+        let energy_fee = contract.get_consumption_energy_fee(price, time);
 
         let current_data = TimeSeriesValue {
             time: time,
@@ -225,13 +247,17 @@ async fn log_new_consumption_entry(client: &Client,
             tax_fee: Some(tax_fee),
             basic_fee: Some(basic_fee),
             energy_fee: Some(energy_fee),
+
+            contract_type: contract.contract_type.clone().into(),
+            spot_margin: contract.get_spot_margin(),
+            tax_multiplier: contract.get_tax_multiplier(),
         };
 
         let write_result = client
             .query(&current_data.into_query("consumptions"))
             .await;
         if let Err(err) = write_result {
-            eprintln!("Error writing to db: {}", err)
+            error!("Error writing to db: {}", err)
         }
 }
 
@@ -252,7 +278,7 @@ async fn get_day_ahead_price(client: &Client, time: &DateTime<Utc>) -> f32 {
             }
         },
         Err(err) => {
-            eprintln!("Error reading dayAheadPrices from the db: {}", err);
+            error!("Error reading dayAheadPrices from the db: {}", err);
         }
     }
 
@@ -275,7 +301,7 @@ async fn has_day_ahead_price(client: &Client, time: &DateTime<Utc>) -> bool {
             }
         },
         Err(err) => {
-            eprintln!("Error reading dayAheadPrices from the db: {}", err);
+            error!("Error reading dayAheadPrices from the db: {}", err);
         }
     }
 
@@ -286,13 +312,19 @@ async fn update_spot_data(client: &Client, config: &SettingsConfig, spot_data: &
     for (pos, tsv) in spot_data.timeseries.values.tsv.iter().enumerate() {
         let time = tsv.get_timestamp_utc_calculated(pos);
         if time.is_none() {
-            println!("Skipping updating spot data because time couldn't be parsed");
+            warn!("Skipping updating spot data because time couldn't be parsed");
         }
 
         let time = time.unwrap();
         let has_price = has_day_ahead_price(&client, &time).await;
         if !has_price {
-            let multiplier = config.get_spot_data_vat_multiplier(time);
+            let mut multiplier = 1.24;
+
+            let contract = config.get_contract(time);
+            if contract.is_some() {
+                let contract = contract.unwrap();
+                multiplier = contract.get_spot_data_vat_multiplier();
+            }
 
             if tsv.quantity.is_none() {
                 continue;
@@ -310,7 +342,7 @@ async fn update_spot_data(client: &Client, config: &SettingsConfig, spot_data: &
 }
 
 async fn log_new_day_ahead_price(client: &Client, time: &DateTime<Utc>, price: f32) {
-    println!("Logging day ahead price UTC: {:?} - {}", time, price);
+    info!("Logging day ahead price UTC: {:?} - {}", time, price);
 
     let current_data = PriceData {
         time: *time,
@@ -332,7 +364,7 @@ async fn log_new_day_ahead_price(client: &Client, time: &DateTime<Utc>, price: f
         .query(&current_data.into_query("dayAheadPrices"))
         .await;
     if let Err(err) = write_result {
-        eprintln!("Error writing to db: {}", err)
+        error!("Error writing to db: {}", err)
     }
 }
 
@@ -351,11 +383,17 @@ async fn set_consumption_fees(client: &Client, config: &SettingsConfig, start: &
                 for value in result.series[0].values.iter() {
                     let price = get_day_ahead_price(&client, &value.time).await;
 
-                    let transfer_basic_fee = config.get_consumption_transfer_basic_fee(value.time);
-                    let transfer_fee = config.get_consumption_transfer_fee(value.time);
-                    let tax_fee = config.get_consumption_tax_fee(value.time);
-                    let basic_fee = config.get_consumption_basic_fee(value.time);
-                    let energy_fee = config.get_consumption_energy_fee(price, value.time);
+                    let contract = config.get_contract(value.time);
+                    if contract.is_none() {
+                        warn!("Skipping logging because contract couldn't be found");
+                        return;
+                    }
+                    let contract = contract.unwrap();
+                    let transfer_basic_fee = contract.get_consumption_transfer_basic_fee();
+                    let transfer_fee = contract.get_consumption_transfer_fee(value.time);
+                    let tax_fee = contract.get_consumption_transfer_tax_fee();
+                    let basic_fee = contract.get_consumption_basic_fee();
+                    let energy_fee = contract.get_consumption_energy_fee(price, value.time);
 
                     let data = TimeSeriesValue {
                         time: value.time,
@@ -373,19 +411,23 @@ async fn set_consumption_fees(client: &Client, config: &SettingsConfig, start: &
                         tax_fee: Some(tax_fee),
                         basic_fee: Some(basic_fee),
                         energy_fee: Some(energy_fee),
+
+                        contract_type: contract.contract_type.clone().into(),
+                        spot_margin: contract.get_spot_margin(),
+                        tax_multiplier: contract.get_tax_multiplier(),
                     };
 
                     let write_result = client
                         .query(&data.into_query("consumptions"))
                         .await;
                     if let Err(err) = write_result {
-                        eprintln!("Error writing to db: {}", err)
+                        error!("Error writing to db: {}", err)
                     }
                 }
             }
         },
         Err(err) => {
-            eprintln!("Error reading consumptions from the db: {}", err);
+            error!("Error reading consumptions from the db: {}", err);
         }
     }
 }
@@ -403,7 +445,13 @@ async fn set_production_fees(client: &Client, config: &SettingsConfig, start: &D
             if result.series.len() > 0 && result.series[0].values.len() > 0
             {
                 for value in result.series[0].values.iter() {
-                    let transfer_fee = config.get_production_transfer_fee(value.time);
+                    let contract = config.get_contract(value.time);
+                    if contract.is_none() {
+                        warn!("Skipping production fees setting because contract couldn't be found");
+                        return;
+                    }
+                    let contract = contract.unwrap();
+                    let transfer_fee = contract.get_production_transfer_fee();
 
                     let data = TimeSeriesValue {
                         time: value.time,
@@ -421,19 +469,23 @@ async fn set_production_fees(client: &Client, config: &SettingsConfig, start: &D
                         tax_fee: None,
                         basic_fee: None,
                         energy_fee: None,
+
+                        contract_type: contract.contract_type.clone().into(),
+                        spot_margin: None,
+                        tax_multiplier: Some(0.0),
                     };
 
                     let write_result = client
                         .query(&data.into_query("productions"))
                         .await;
                     if let Err(err) = write_result {
-                        eprintln!("Error writing to db: {}", err)
+                        error!("Error writing to db: {}", err)
                     }
                 }
             }
         },
         Err(err) => {
-            eprintln!("Error reading consumptions from the db: {}", err);
+            error!("Error reading consumptions from the db: {}", err);
         }
     }
 }
@@ -451,7 +503,7 @@ fn parse_time_to_utc(time: &str) -> DateTime<Utc> {
 
 
 async fn get_access_token(endpoint: &str, username: &str, password: &str) -> Result<TokenResponse, anyhow::Error> {
-    println!("Fetching a new access_token for WattiVahti user - {}", &username);
+    info!("Fetching a new access_token for WattiVahti user - {}", &username);
 
     let res = reqwest::Client::new()
         .post(format!("{}/wattivahti/token", endpoint))
@@ -467,14 +519,14 @@ async fn get_access_token(endpoint: &str, username: &str, password: &str) -> Res
     let data_str = res
         .text()
         .await?;
-    // println!("{}", data_str);
+    // info!("{}", data_str);
 
     if status != StatusCode::OK {
         return Err(anyhow::anyhow!(data_str));
     }
 
     let data: TokenResponse = serde_json::from_str(&data_str)?;
-    // println!("TokenResponse: {:#?}", data);
+    // info!("TokenResponse: {:#?}", data);
 
     Ok(data)
 }
@@ -554,8 +606,22 @@ fn get_time_after_duration(duration: u64) -> String {
 async fn main() {
     dotenv().ok();
 
+    let subscriber = FmtSubscriber::builder()
+        // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
+        // will be written to stdout.
+        .with_max_level(Level::INFO)
+        // completes the builder.
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("setting default subscriber failed");
+
     let config = settings::config::load_settings(format!("configs/{}.yaml", "production"))
         .expect("Failed to load settings file.");
+
+    if let Err(err) = config.validate() {
+        panic!("Validation error: {}", err);
+    }
 
     let database_url = dotenv::var("DATABASE_URL").unwrap_or("http://localhost:8086".to_string());
     let database_name = dotenv::var("DATABASE_NAME").unwrap_or("wattivahti".to_string());
@@ -617,7 +683,7 @@ async fn main() {
         )
         .await;
 
-        println!("Fees changed for {} - {}, exiting in {}ms ...", start, stop, interval);
+        info!("Fees changed for {} - {}, exiting in {}ms ...", start, stop, interval);
         sleep(Duration::from_millis(interval)).await;
     }
     else if rest_mode {
@@ -631,7 +697,7 @@ async fn main() {
             .bind("0.0.0.0:9090")
         {
             Ok(value) => {
-                println!("REST API started at 0.0.0.0:9090");
+                info!("REST API started at 0.0.0.0:9090");
                 value
             },
             Err(error) => panic!("Error binding to socket:{:?}", error),
@@ -649,12 +715,12 @@ async fn main() {
             if !wattivahti_username.is_empty() {
                 let result = get_access_token(&wattivahti_token_endpoint, &wattivahti_username, &wattivahti_password).await;
                 if result.is_err() {
-                    println!("Logging {} - {} failed because of accessToken, waiting for the next fetch in {}ms...", start, stop, interval);
+                    info!("Logging {} - {} failed because of accessToken, waiting for the next fetch in {}ms...", start, stop, interval);
                     sleep(Duration::from_millis(interval)).await;
                 }
                 let result = result.unwrap();
                 if result.access_token.is_none() {
-                    println!("Logging {} - {} failed because of accessToken, waiting for the next fetch in {}ms...", start, stop, interval);
+                    info!("Logging {} - {} failed because of accessToken, waiting for the next fetch in {}ms...", start, stop, interval);
                     sleep(Duration::from_millis(interval)).await;
                 }
                 access_token = result.access_token.unwrap();
@@ -672,7 +738,7 @@ async fn main() {
                 .await;
 
             let next_fetch_interval = get_next_spot_fetch_milliseconds() as u64;
-            println!("Logging {} - {} done, waiting for the next fetch at {} ...", start_stop.0, start_stop.1, get_time_after_duration(next_fetch_interval));
+            info!("Logging {} - {} done, waiting for the next fetch at {} ...", start_stop.0, start_stop.1, get_time_after_duration(next_fetch_interval));
             sleep(Duration::from_millis(next_fetch_interval)).await;
         }
     }
@@ -681,12 +747,12 @@ async fn main() {
         if !wattivahti_username.is_empty() {
             let result = get_access_token(&wattivahti_token_endpoint, &wattivahti_username, &wattivahti_password).await;
             if result.is_err() {
-                println!("Logging {} - {} failed because of accessToken, waiting for the next fetch in {}ms...", start, stop, interval);
+                info!("Logging {} - {} failed because of accessToken, waiting for the next fetch in {}ms...", start, stop, interval);
                 sleep(Duration::from_millis(interval)).await;
             }
             let result = result.unwrap();
             if result.access_token.is_none() {
-                println!("Logging {} - {} failed because of accessToken, waiting for the next fetch in {}ms...", start, stop, interval);
+                info!("Logging {} - {} failed because of accessToken, waiting for the next fetch in {}ms...", start, stop, interval);
                 sleep(Duration::from_millis(interval)).await;
             }
             access_token = result.access_token.unwrap();
@@ -712,7 +778,7 @@ async fn main() {
         )
         .await;
 
-        println!("Logging {} - {} done, exiting in {}ms ...", start, stop, interval);
+        info!("Logging {} - {} done, exiting in {}ms ...", start, stop, interval);
         sleep(Duration::from_millis(interval)).await;
     }
     else {
@@ -721,13 +787,13 @@ async fn main() {
             if !wattivahti_username.is_empty() {
                 let result = get_access_token(&wattivahti_token_endpoint, &wattivahti_username, &wattivahti_password).await;
                 if result.is_err() {
-                    println!("Logging {} - {} failed because of accessToken, waiting for the next fetch at {} ...", start, stop, get_time_after_duration(interval));
+                    warn!("Logging {} - {} failed because of accessToken, waiting for the next fetch at {} ...", start, stop, get_time_after_duration(interval));
                     sleep(Duration::from_millis(interval)).await;
                     continue;
                 }
                 let result = result.unwrap();
                 if result.access_token.is_none() {
-                    println!("Logging {} - {} failed because of accessToken, waiting for the next fetch at {} ...", start, stop, get_time_after_duration(interval));
+                    warn!("Logging {} - {} failed because of accessToken, waiting for the next fetch at {} ...", start, stop, get_time_after_duration(interval));
                     sleep(Duration::from_millis(interval)).await;
                     continue;
                 }
@@ -756,7 +822,7 @@ async fn main() {
             .await;
 
             let next_fetch_interval = get_next_fetch_milliseconds() as u64;
-            println!("Logging {} - {} done, waiting for the next fetch at {} ...", start_stop.0, start_stop.1, get_time_after_duration(next_fetch_interval));
+            info!("Logging {} - {} done, waiting for the next fetch at {} ...", start_stop.0, start_stop.1, get_time_after_duration(next_fetch_interval));
             sleep(Duration::from_millis(next_fetch_interval)).await;
         }
     }
@@ -795,8 +861,9 @@ mod tests {
         let config = settings::config::load_settings(format!("configs/{}.yaml", "test"))
             .expect("Failed to load settings file.");
 
-        let dt = DateTime::<Utc>::from_utc(NaiveDateTime::parse_from_str("2019-12-31T22:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(), Utc);
-        let energy_fee = config.get_consumption_energy_fee(2.93, dt);
+        let dt = DateTime::<Utc>::from_utc(NaiveDateTime::parse_from_str("2014-05-31T22:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(), Utc);
+        let contract = config.get_contract(dt).unwrap();
+        let energy_fee = contract.get_consumption_energy_fee(1.23, dt);
         println!("Result: {}", energy_fee);
     }
 }
