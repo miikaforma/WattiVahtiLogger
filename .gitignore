@@ -4,3 +4,5 @@
 .env*
 docker-compose.*.yml
 .idea
+node_auth/localStorage.json
+logger/logs/*
