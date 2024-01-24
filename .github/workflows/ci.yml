@@ -34,7 +34,7 @@ jobs:
       commit_hash: ${{ steps.set_outputs.outputs.COMMIT_HASH }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
@@ -122,21 +122,21 @@ jobs:
       COMMIT_HASH: ${{ needs.buildVariables.outputs.commit_hash }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
 
-      - uses: docker/setup-buildx-action@v2
+      - uses: docker/setup-buildx-action@v3
       - name: Login to DockerHub
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push
         id: x86_build
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/amd64
@@ -145,6 +145,18 @@ jobs:
           tags: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:amd64-${{ env.RELEASE_VERSION }},${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:amd64-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Extract binary
+        run: |
+          docker create --name temp_container ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:amd64-${{ env.RELEASE_VERSION }}
+          docker cp temp_container:/logger ./wattivahti-logger-x86_64-unknown-linux-musl-${{ needs.buildVariables.outputs.release_version }}
+          docker rm temp_container
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: x86_64
+          path: ./wattivahti-logger-x86_64-unknown-linux-musl-${{ needs.buildVariables.outputs.release_version }}
 
   arm64:
     name: "Build and push arm64 wattivahti-logger"
@@ -157,21 +169,21 @@ jobs:
       COMMIT_HASH: ${{ needs.buildVariables.outputs.commit_hash }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
 
-      - uses: docker/setup-buildx-action@v2
+      - uses: docker/setup-buildx-action@v3
       - name: Login to DockerHub
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push
         id: arm64_build
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/arm64
@@ -180,6 +192,18 @@ jobs:
           tags: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:arm64-${{ env.RELEASE_VERSION }},${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:arm64-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Extract binary
+        run: |
+          docker create --name temp_container ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:arm64-${{ env.RELEASE_VERSION }}
+          docker cp temp_container:/logger ./wattivahti-logger-aarch64-unknown-linux-musl-${{ env.RELEASE_VERSION }}
+          docker rm temp_container
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64
+          path: ./wattivahti-logger-aarch64-unknown-linux-musl-${{ env.RELEASE_VERSION }}
 
   auth:
     name: "Build and push wattivahti-auth"
@@ -192,21 +216,21 @@ jobs:
       COMMIT_HASH: ${{ needs.buildVariables.outputs.commit_hash }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
 
-      - uses: docker/setup-buildx-action@v2
+      - uses: docker/setup-buildx-action@v3
       - name: Login to DockerHub
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push
         id: auth_build
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: ./node_auth
           platforms: linux/amd64,linux/arm64
@@ -216,52 +240,32 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # multiarch_logger:
-  #   needs: [buildVariables, x86, arm64]
-  #   name: Create a new multiarch tag for logger
-  #   runs-on: ubuntu-latest
-  #   env:
-  #     TAG_VERSION: ${{ needs.buildVariables.outputs.tag_version }}
-  #     RELEASE_VERSION: ${{ needs.buildVariables.outputs.release_version }}
-  #     COMMIT_BRANCH: ${{ needs.buildVariables.outputs.commit_branch }}
-  #     COMMIT_HASH: ${{ needs.buildVariables.outputs.commit_hash }}
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v3
-  #       with:
-  #         fetch-depth: 0
-  #         submodules: recursive
-
-  #     - uses: docker/setup-buildx-action@v2
-  #     - name: Login to DockerHub
-  #       uses: docker/login-action@v2
-  #       with:
-  #         username: ${{ secrets.DOCKER_USERNAME }}
-  #         password: ${{ secrets.DOCKER_PASSWORD }}
-
-  #     - name: Create and push manifest images for version
-  #       uses: Noelware/docker-manifest-action@0.4.0
-  #       with:
-  #           inputs: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:${{ env.RELEASE_VERSION }}
-  #           images: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:amd64-${{ env.RELEASE_VERSION }},${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:arm64-${{ env.RELEASE_VERSION }}
-  #           push: true
-  #     - name: Create and push manifest images for latest
-  #       uses: Noelware/docker-manifest-action@0.4.0
-  #       with:
-  #           inputs: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:latest
-  #           images: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:amd64-latest,${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:arm64-latest
-  #           push: true
-
   create_release:
     needs: [buildVariables, x86, arm64, auth]
     name: Create a new release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     if: ${{ github.event.inputs.version_level != 'commit' }}
+    env:
+      RELEASE_VERSION: ${{ needs.buildVariables.outputs.release_version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Download x86_64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: x86_64
+          path: ./artifacts
+      - name: Download aarch64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: aarch64
+          path: ./artifacts
+      - name: List
+        run: find ./artifacts
       - name: Create Release
         id: create_release
         uses: ncipollo/release-action@v1
@@ -278,3 +282,27 @@ jobs:
           prerelease: false
           allowUpdates: true
           updateOnlyUnreleased: true
+          artifacts: "./artifacts/*"
+      - name: Move images
+        run: |
+          mv ./artifacts/wattivahti-logger-x86_64-unknown-linux-musl-${{ env.RELEASE_VERSION }} ./wattivahti-logger-x86_64-unknown-linux-musl
+          mv ./artifacts/wattivahti-logger-aarch64-unknown-linux-musl-${{ env.RELEASE_VERSION }} ./wattivahti-logger-aarch64-unknown-linux-musl
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Build and push multi-arch Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.release
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:${{ env.RELEASE_VERSION }},${{ secrets.DOCKER_USERNAME }}/wattivahti-logger:latest
+          build-args: |
+            TARGETARCH
