@@ -193,7 +193,7 @@ fastify.post('/wattivahti/token', async (request, reply) => {
         accessToken = await getAccessToken(page);
     }
 
-    saveLocalStorageToCache(page, localStorageCacheKey);
+    await saveLocalStorageToCache(page, localStorageCacheKey);
     // await page.screenshot({ path: 'example.png' });
 
     await browser.close();
