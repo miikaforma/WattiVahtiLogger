@@ -5,42 +5,141 @@ DROP MATERIALIZED VIEW IF EXISTS energies_consumption_hour_by_hour CASCADE;
 CREATE MATERIALIZED VIEW energies_consumption_hour_by_hour
 WITH (timescaledb.continuous)
 AS
-SELECT 
-    time_bucket('1 hour', time) AS datetime,
+SELECT
+	 -- Main properties
+    time_bucket('1 hour', time) AS time,
     metering_point_code,
     measure_type,
     contract_type,
     source,
     measure_unit,
-    SUM(value) AS value,
-    SUM(energy_basic_fee) AS energy_basic_fee,
-    AVG(CASE
-        WHEN contract_type = 2 THEN energy_fee
-        WHEN contract_type = 3 THEN (spot_price * (tax_percentage / 100. + 1.0)) + energy_margin
-        ELSE NULL
-    END) * SUM(value) AS energy_fee,
-    (AVG(CASE
-        WHEN contract_type = 2 THEN energy_fee
-        WHEN contract_type = 3 THEN (spot_price * (tax_percentage / 100. + 1.0)) + energy_margin
-        ELSE NULL
-    END) + AVG(transfer_fee) + AVG(transfer_tax_fee)) * SUM(value) AS price,
-
-    AVG(spot_price * (tax_percentage / 100. + 1.0)) * SUM(value) AS spot_energy_fee_no_margin,
-    (AVG(spot_price * (tax_percentage / 100. + 1.0)) + AVG(transfer_fee) + AVG(transfer_tax_fee)) * SUM(value) AS spot_price_no_margin,
-
-    SUM(transfer_basic_fee) AS transfer_basic_fee,
-    SUM(transfer_fee * value) AS transfer_fee,
-    SUM(transfer_tax_fee * value) AS transfer_tax_fee,
     AVG(tax_percentage) AS tax_percentage,
     BOOL_OR(night) AS night,
-    AVG(spot_price) AS spot_price,
-    AVG(spot_price * (tax_percentage / 100. + 1.0)) AS spot_price_with_tax
+    ROUND(AVG(spot_price) * 100000.) / 100000. AS spot_price,
+    ROUND(AVG(spot_price * (tax_percentage / 100.)) * 100000.) / 100000. AS spot_price_tax,
+    ROUND(AVG(spot_price * (tax_percentage / 100. + 1.0)) * 100000.) / 100000. AS spot_price_with_tax,
+    
+    -- Basic fees
+    ROUND(AVG(energy_basic_fee) * 100000.) / 100000. AS energy_basic_fee,
+    ROUND(AVG(transfer_basic_fee) * 100000.) / 100000. AS transfer_basic_fee,
+    
+    -- Energy consumption
+    ROUND(SUM(value) * 100000.) / 100000. AS energy_consumption,
+    ROUND(SUM(CASE
+        WHEN night = true THEN value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_consumption_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_consumption_day,
+    ROUND(AVG(VALUE) * 100000.) / 100000. AS energy_consumption_avg,
+    
+	 -- Energy fee
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 THEN energy_fee * value
+      WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS energy_fee,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = true THEN energy_fee * value
+      WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS energy_fee_night,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = false THEN energy_fee * value
+      WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS energy_fee_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
+        WHEN contract_type = 2 THEN energy_fee * value
+        WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+        ELSE NULL
+      END) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS energy_fee_avg,
+    
+    -- Energy fee margin
+    ROUND(SUM(energy_margin * value) * 100000.) / 100000. AS energy_margin,
+    ROUND(SUM(CASE
+        WHEN night = true THEN energy_margin * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_margin_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN energy_margin * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_margin_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(energy_margin * value) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS energy_margin_avg,
+    
+    -- Transfer fee
+    ROUND(SUM(transfer_fee * value) * 100000.) / 100000. AS transfer_fee,
+    ROUND(SUM(CASE
+        WHEN night = true THEN transfer_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_fee_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN transfer_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_fee_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(transfer_fee * value) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS transfer_fee_avg,
+    
+    -- Transfer tax fee
+    ROUND(SUM(transfer_tax_fee * value) * 100000.) / 100000. AS transfer_tax_fee,
+    ROUND(SUM(CASE
+        WHEN night = true THEN transfer_tax_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_tax_fee_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN transfer_tax_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_tax_fee_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(transfer_tax_fee * value) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS transfer_tax_fee_avg,
+    
+    -- Price
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS price,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = true THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS price_night,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = false THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS price_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
+        WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+        WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+        ELSE NULL
+      END) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS price_avg,
+    
+    -- Spot calculations even when fixed price
+    ROUND(SUM(((spot_price * (tax_percentage / 100. + 1.0))) * value) * 100000.) / 100000. AS energy_fee_spot_no_margin,
+    ROUND(SUM(((spot_price * (tax_percentage / 100. + 1.0)) + transfer_fee + transfer_tax_fee) * value) * 100000.) / 100000. AS price_spot_no_margin
 FROM 
     energies
 WHERE 
     measure_type = 1
 GROUP BY 
-    datetime, metering_point_code, measure_type, contract_type, source, measure_unit;
+    1, metering_point_code, measure_type, contract_type, source, measure_unit;
+
 
 -- To drop the view for the hourly consumptions, run:
 -- DROP MATERIALIZED VIEW energies_consumption_hour_by_hour;
@@ -54,38 +153,138 @@ CREATE MATERIALIZED VIEW energies_consumption_day_by_day
 WITH (timescaledb.continuous)
 AS
 SELECT 
-    time_bucket('1 day', datetime, 'Europe/Helsinki') AS date,
+    time_bucket('1 day', time, 'Europe/Helsinki') AS time,
     metering_point_code,
-    ROUND(AVG(energy_basic_fee) * 100.) / 100. AS avg_energy_basic_fee,
-    ROUND(AVG(transfer_basic_fee) * 100.) / 100. AS avg_transfer_basic_fee,
-    ROUND(SUM(value) * 100.) / 100. AS sum_value,
-    ROUND(SUM(CASE WHEN night = true THEN value ELSE 0 END) * 100.) / 100. AS sum_value_night,
-    ROUND(SUM(CASE WHEN night = false THEN value ELSE 0 END) * 100.) / 100. AS sum_value_day,
-    ROUND(SUM(energy_fee) * 100.) / 100. AS sum_energy_fee,
-    ROUND((SUM(energy_fee) / NULLIF(SUM(value), 0)) * 100.) / 100. AS avg_energy_price,
+    measure_type,
+    contract_type,
+    source,
+    measure_unit,
+    AVG(tax_percentage) AS tax_percentage,
+    BOOL_OR(night) AS night,
+    ROUND(AVG(spot_price) * 100000.) / 100000. AS spot_price,
+    ROUND(AVG(spot_price * (tax_percentage / 100.)) * 100000.) / 100000. AS spot_price_tax,
+    ROUND(AVG(spot_price * (tax_percentage / 100. + 1.0)) * 100000.) / 100000. AS spot_price_with_tax,
     
-    ROUND(SUM(spot_energy_fee_no_margin) * 100.) / 100. AS sum_spot_energy_fee_no_margin,
-    ROUND((SUM(spot_energy_fee_no_margin) / NULLIF(SUM(value), 0)) * 100.) / 100. AS avg_spot_energy_price_no_margin,
-    ROUND(SUM(spot_price_no_margin) * 100.) / 100. AS sum_spot_price_no_margin,
+    -- Basic fees
+    ROUND(AVG(energy_basic_fee) * 100000.) / 100000. AS energy_basic_fee,
+    ROUND(AVG(transfer_basic_fee) * 100000.) / 100000. AS transfer_basic_fee,
     
-    ROUND(SUM(price) * 100.) / 100. AS sum_price,
-    ROUND(SUM(CASE WHEN night = true THEN price ELSE 0 END) * 100.) / 100. AS sum_price_night,
-    ROUND(SUM(CASE WHEN night = false THEN price ELSE 0 END) * 100.) / 100. AS sum_price_day,
-    ROUND((SUM(price) / NULLIF(SUM(value), 0)) * 100.) / 100. AS avg_price,
-    ROUND(SUM(transfer_fee) * 100.) / 100. AS sum_transfer_fee,
-    ROUND(SUM(CASE WHEN night = true THEN transfer_fee ELSE 0 END) * 100.) / 100. AS sum_transfer_fee_night,
-    ROUND(SUM(CASE WHEN night = false THEN transfer_fee ELSE 0 END) * 100.) / 100. AS sum_transfer_fee_day,
-    ROUND(SUM(transfer_tax_fee) * 100.) / 100. AS sum_transfer_tax_fee,
-    ROUND(SUM(CASE WHEN night = true THEN transfer_tax_fee ELSE 0 END) * 100.) / 100. AS sum_transfer_tax_fee_night,
-    ROUND(SUM(CASE WHEN night = false THEN transfer_tax_fee ELSE 0 END) * 100.) / 100. AS sum_transfer_tax_fee_day,
-    ROUND(AVG(spot_price) * 100.) / 100. AS avg_spot_price,
-    ROUND(AVG(spot_price_with_tax) * 100.) / 100. AS avg_spot_price_with_tax
+    -- Energy consumption
+    ROUND(SUM(value) * 100000.) / 100000. AS energy_consumption,
+    ROUND(SUM(CASE
+        WHEN night = true THEN value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_consumption_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_consumption_day,
+    ROUND(AVG(VALUE) * 100000.) / 100000. AS energy_consumption_avg,
+    
+	 -- Energy fee
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 THEN energy_fee * value
+      WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS energy_fee,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = true THEN energy_fee * value
+      WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS energy_fee_night,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = false THEN energy_fee * value
+      WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS energy_fee_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
+        WHEN contract_type = 2 THEN energy_fee * value
+        WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+        ELSE NULL
+      END) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS energy_fee_avg,
+    
+    -- Energy fee margin
+    ROUND(SUM(energy_margin * value) * 100000.) / 100000. AS energy_margin,
+    ROUND(SUM(CASE
+        WHEN night = true THEN energy_margin * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_margin_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN energy_margin * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_margin_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(energy_margin * value) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS energy_margin_avg,
+    
+    -- Transfer fee
+    ROUND(SUM(transfer_fee * value) * 100000.) / 100000. AS transfer_fee,
+    ROUND(SUM(CASE
+        WHEN night = true THEN transfer_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_fee_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN transfer_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_fee_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(transfer_fee * value) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS transfer_fee_avg,
+    
+    -- Transfer tax fee
+    ROUND(SUM(transfer_tax_fee * value) * 100000.) / 100000. AS transfer_tax_fee,
+    ROUND(SUM(CASE
+        WHEN night = true THEN transfer_tax_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_tax_fee_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN transfer_tax_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_tax_fee_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(transfer_tax_fee * value) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS transfer_tax_fee_avg,
+    
+    -- Price
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS price,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = true THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS price_night,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = false THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS price_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
+        WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+        WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+        ELSE NULL
+      END) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS price_avg,
+    
+    -- Spot calculations even when fixed price
+    ROUND(SUM(((spot_price * (tax_percentage / 100. + 1.0))) * value) * 100000.) / 100000. AS energy_fee_spot_no_margin,
+    ROUND(SUM(((spot_price * (tax_percentage / 100. + 1.0)) + transfer_fee + transfer_tax_fee) * value) * 100000.) / 100000. AS price_spot_no_margin
 FROM 
-    energies_consumption_hour_by_hour
+    energies
+WHERE 
+    measure_type = 1
 GROUP BY 
-    date, metering_point_code, measure_type
-ORDER BY 
-    date DESC;
+    1, metering_point_code, measure_type, contract_type, source, measure_unit;
 
 -- To drop the view for the daily consumptions, run:
 -- DROP MATERIALIZED VIEW energies_consumption_day_by_day;
@@ -99,38 +298,138 @@ CREATE MATERIALIZED VIEW energies_consumption_month_by_month
 WITH (timescaledb.continuous)
 AS
 SELECT 
-    time_bucket('1 month', datetime, 'Europe/Helsinki') AS date,
+    time_bucket('1 month', time, 'Europe/Helsinki') AS time,
     metering_point_code,
-    ROUND(AVG(energy_basic_fee) * 100.) / 100. AS avg_energy_basic_fee,
-    ROUND(AVG(transfer_basic_fee) * 100.) / 100. AS avg_transfer_basic_fee,
-    ROUND(SUM(value) * 100.) / 100. AS sum_value,
-    ROUND(SUM(CASE WHEN night = true THEN value ELSE 0 END) * 100.) / 100. AS sum_value_night,
-    ROUND(SUM(CASE WHEN night = false THEN value ELSE 0 END) * 100.) / 100. AS sum_value_day,
-    ROUND(SUM(energy_fee) * 100.) / 100. AS sum_energy_fee,
-    ROUND((SUM(energy_fee) / NULLIF(SUM(value), 0)) * 100.) / 100. AS avg_energy_price,
+    measure_type,
+    null AS contract_type,
+    null AS source,
+    null AS measure_unit,
+    AVG(tax_percentage) AS tax_percentage,
+    BOOL_OR(night) AS night,
+    ROUND(AVG(spot_price) * 100000.) / 100000. AS spot_price,
+    ROUND(AVG(spot_price * (tax_percentage / 100.)) * 100000.) / 100000. AS spot_price_tax,
+    ROUND(AVG(spot_price * (tax_percentage / 100. + 1.0)) * 100000.) / 100000. AS spot_price_with_tax,
     
-    ROUND(SUM(spot_energy_fee_no_margin) * 100.) / 100. AS sum_spot_energy_fee_no_margin,
-    ROUND((SUM(spot_energy_fee_no_margin) / NULLIF(SUM(value), 0)) * 100.) / 100. AS avg_spot_energy_price_no_margin,
-    ROUND(SUM(spot_price_no_margin) * 100.) / 100. AS sum_spot_price_no_margin,
+    -- Basic fees
+    ROUND(AVG(energy_basic_fee) * 100000.) / 100000. AS energy_basic_fee,
+    ROUND(AVG(transfer_basic_fee) * 100000.) / 100000. AS transfer_basic_fee,
     
-    ROUND(SUM(price) * 100.) / 100. AS sum_price,
-    ROUND(SUM(CASE WHEN night = true THEN price ELSE 0 END) * 100.) / 100. AS sum_price_night,
-    ROUND(SUM(CASE WHEN night = false THEN price ELSE 0 END) * 100.) / 100. AS sum_price_day,
-    ROUND((SUM(price) / NULLIF(SUM(value), 0)) * 100.) / 100. AS avg_price,
-    ROUND(SUM(transfer_fee) * 100.) / 100. AS sum_transfer_fee,
-    ROUND(SUM(CASE WHEN night = true THEN transfer_fee ELSE 0 END) * 100.) / 100. AS sum_transfer_fee_night,
-    ROUND(SUM(CASE WHEN night = false THEN transfer_fee ELSE 0 END) * 100.) / 100. AS sum_transfer_fee_day,
-    ROUND(SUM(transfer_tax_fee) * 100.) / 100. AS sum_transfer_tax_fee,
-    ROUND(SUM(CASE WHEN night = true THEN transfer_tax_fee ELSE 0 END) * 100.) / 100. AS sum_transfer_tax_fee_night,
-    ROUND(SUM(CASE WHEN night = false THEN transfer_tax_fee ELSE 0 END) * 100.) / 100. AS sum_transfer_tax_fee_day,
-    ROUND(AVG(spot_price) * 100.) / 100. AS avg_spot_price,
-    ROUND(AVG(spot_price_with_tax) * 100.) / 100. AS avg_spot_price_with_tax
+    -- Energy consumption
+    ROUND(SUM(value) * 100000.) / 100000. AS energy_consumption,
+    ROUND(SUM(CASE
+        WHEN night = true THEN value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_consumption_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_consumption_day,
+    ROUND(AVG(VALUE) * 100000.) / 100000. AS energy_consumption_avg,
+    
+	 -- Energy fee
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 THEN energy_fee * value
+      WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS energy_fee,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = true THEN energy_fee * value
+      WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS energy_fee_night,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = false THEN energy_fee * value
+      WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS energy_fee_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
+        WHEN contract_type = 2 THEN energy_fee * value
+        WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+        ELSE NULL
+      END) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS energy_fee_avg,
+    
+    -- Energy fee margin
+    ROUND(SUM(energy_margin * value) * 100000.) / 100000. AS energy_margin,
+    ROUND(SUM(CASE
+        WHEN night = true THEN energy_margin * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_margin_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN energy_margin * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_margin_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(energy_margin * value) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS energy_margin_avg,
+    
+    -- Transfer fee
+    ROUND(SUM(transfer_fee * value) * 100000.) / 100000. AS transfer_fee,
+    ROUND(SUM(CASE
+        WHEN night = true THEN transfer_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_fee_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN transfer_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_fee_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(transfer_fee * value) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS transfer_fee_avg,
+    
+    -- Transfer tax fee
+    ROUND(SUM(transfer_tax_fee * value) * 100000.) / 100000. AS transfer_tax_fee,
+    ROUND(SUM(CASE
+        WHEN night = true THEN transfer_tax_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_tax_fee_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN transfer_tax_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_tax_fee_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(transfer_tax_fee * value) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS transfer_tax_fee_avg,
+    
+    -- Price
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS price,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = true THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS price_night,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = false THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS price_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
+        WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+        WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+        ELSE NULL
+      END) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS price_avg,
+    
+    -- Spot calculations even when fixed price
+    ROUND(SUM(((spot_price * (tax_percentage / 100. + 1.0))) * value) * 100000.) / 100000. AS energy_fee_spot_no_margin,
+    ROUND(SUM(((spot_price * (tax_percentage / 100. + 1.0)) + transfer_fee + transfer_tax_fee) * value) * 100000.) / 100000. AS price_spot_no_margin
 FROM 
-    energies_consumption_hour_by_hour
+    energies
+WHERE 
+    measure_type = 1
 GROUP BY 
-    date, metering_point_code, measure_type
-ORDER BY 
-    date DESC;
+    1, metering_point_code, measure_type;
 
 -- To drop the view for the monthly consumptions, run:
 -- DROP MATERIALIZED VIEW energies_consumption_month_by_month;
@@ -144,38 +443,138 @@ CREATE MATERIALIZED VIEW energies_consumption_year_by_year
 WITH (timescaledb.continuous)
 AS
 SELECT 
-    time_bucket('1 year', datetime, 'Europe/Helsinki') AS date,
+    time_bucket('1 year', time, 'Europe/Helsinki') AS time,
     metering_point_code,
-    ROUND(AVG(energy_basic_fee) * 100.) / 100. AS avg_energy_basic_fee,
-    ROUND(AVG(transfer_basic_fee) * 100.) / 100. AS avg_transfer_basic_fee,
-    ROUND(SUM(value) * 100.) / 100. AS sum_value,
-    ROUND(SUM(CASE WHEN night = true THEN value ELSE 0 END) * 100.) / 100. AS sum_value_night,
-    ROUND(SUM(CASE WHEN night = false THEN value ELSE 0 END) * 100.) / 100. AS sum_value_day,
-    ROUND(SUM(energy_fee) * 100.) / 100. AS sum_energy_fee,
-    ROUND((SUM(energy_fee) / NULLIF(SUM(value), 0)) * 100.) / 100. AS avg_energy_price,
+    measure_type,
+    null AS contract_type,
+    null AS source,
+    null AS measure_unit,
+    AVG(tax_percentage) AS tax_percentage,
+    BOOL_OR(night) AS night,
+    ROUND(AVG(spot_price) * 100000.) / 100000. AS spot_price,
+    ROUND(AVG(spot_price * (tax_percentage / 100.)) * 100000.) / 100000. AS spot_price_tax,
+    ROUND(AVG(spot_price * (tax_percentage / 100. + 1.0)) * 100000.) / 100000. AS spot_price_with_tax,
     
-    ROUND(SUM(spot_energy_fee_no_margin) * 100.) / 100. AS sum_spot_energy_fee_no_margin,
-    ROUND((SUM(spot_energy_fee_no_margin) / NULLIF(SUM(value), 0)) * 100.) / 100. AS avg_spot_energy_price_no_margin,
-    ROUND(SUM(spot_price_no_margin) * 100.) / 100. AS sum_spot_price_no_margin,
-
-    ROUND(SUM(price) * 100.) / 100. AS sum_price,
-    ROUND(SUM(CASE WHEN night = true THEN price ELSE 0 END) * 100.) / 100. AS sum_price_night,
-    ROUND(SUM(CASE WHEN night = false THEN price ELSE 0 END) * 100.) / 100. AS sum_price_day,
-    ROUND((SUM(price) / NULLIF(SUM(value), 0)) * 100.) / 100. AS avg_price,
-    ROUND(SUM(transfer_fee) * 100.) / 100. AS sum_transfer_fee,
-    ROUND(SUM(CASE WHEN night = true THEN transfer_fee ELSE 0 END) * 100.) / 100. AS sum_transfer_fee_night,
-    ROUND(SUM(CASE WHEN night = false THEN transfer_fee ELSE 0 END) * 100.) / 100. AS sum_transfer_fee_day,
-    ROUND(SUM(transfer_tax_fee) * 100.) / 100. AS sum_transfer_tax_fee,
-    ROUND(SUM(CASE WHEN night = true THEN transfer_tax_fee ELSE 0 END) * 100.) / 100. AS sum_transfer_tax_fee_night,
-    ROUND(SUM(CASE WHEN night = false THEN transfer_tax_fee ELSE 0 END) * 100.) / 100. AS sum_transfer_tax_fee_day,
-    ROUND(AVG(spot_price) * 100.) / 100. AS avg_spot_price,
-    ROUND(AVG(spot_price_with_tax) * 100.) / 100. AS avg_spot_price_with_tax
+    -- Basic fees
+    ROUND(AVG(energy_basic_fee) * 100000.) / 100000. AS energy_basic_fee,
+    ROUND(AVG(transfer_basic_fee) * 100000.) / 100000. AS transfer_basic_fee,
+    
+    -- Energy consumption
+    ROUND(SUM(value) * 100000.) / 100000. AS energy_consumption,
+    ROUND(SUM(CASE
+        WHEN night = true THEN value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_consumption_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_consumption_day,
+    ROUND(AVG(VALUE) * 100000.) / 100000. AS energy_consumption_avg,
+    
+	 -- Energy fee
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 THEN energy_fee * value
+      WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS energy_fee,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = true THEN energy_fee * value
+      WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS energy_fee_night,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = false THEN energy_fee * value
+      WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS energy_fee_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
+        WHEN contract_type = 2 THEN energy_fee * value
+        WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
+        ELSE NULL
+      END) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS energy_fee_avg,
+    
+    -- Energy fee margin
+    ROUND(SUM(energy_margin * value) * 100000.) / 100000. AS energy_margin,
+    ROUND(SUM(CASE
+        WHEN night = true THEN energy_margin * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_margin_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN energy_margin * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS energy_margin_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(energy_margin * value) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS energy_margin_avg,
+    
+    -- Transfer fee
+    ROUND(SUM(transfer_fee * value) * 100000.) / 100000. AS transfer_fee,
+    ROUND(SUM(CASE
+        WHEN night = true THEN transfer_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_fee_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN transfer_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_fee_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(transfer_fee * value) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS transfer_fee_avg,
+    
+    -- Transfer tax fee
+    ROUND(SUM(transfer_tax_fee * value) * 100000.) / 100000. AS transfer_tax_fee,
+    ROUND(SUM(CASE
+        WHEN night = true THEN transfer_tax_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_tax_fee_night,
+    ROUND(SUM(CASE
+        WHEN night = false THEN transfer_tax_fee * value
+        ELSE NULL
+    END) * 100000.) / 100000. AS transfer_tax_fee_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(transfer_tax_fee * value) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS transfer_tax_fee_avg,
+    
+    -- Price
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS price,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = true THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS price_night,
+    ROUND(SUM(CASE
+      WHEN contract_type = 2 AND night = false THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+      ELSE NULL
+    END) * 100000.) / 100000. AS price_day,
+    CASE
+      WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
+        WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+        WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
+        ELSE NULL
+      END) / SUM(value) * 100000.) / 100000.
+      ELSE NULL
+    END AS price_avg,
+    
+    -- Spot calculations even when fixed price
+    ROUND(SUM(((spot_price * (tax_percentage / 100. + 1.0))) * value) * 100000.) / 100000. AS energy_fee_spot_no_margin,
+    ROUND(SUM(((spot_price * (tax_percentage / 100. + 1.0)) + transfer_fee + transfer_tax_fee) * value) * 100000.) / 100000. AS price_spot_no_margin
 FROM 
-    energies_consumption_hour_by_hour
+    energies
+WHERE 
+    measure_type = 1
 GROUP BY 
-    date, metering_point_code, measure_type
-ORDER BY 
-    date DESC;
+    1, metering_point_code, measure_type;
 
 -- To drop the view for the yearly consumptions, run:
 -- DROP MATERIALIZED VIEW energies_consumption_year_by_year;
