@@ -51,14 +51,14 @@ SELECT
       WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000. AS energy_fee_day,
-    CASE
+    COALESCE(CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
         WHEN contract_type = 2 THEN energy_fee * value
         WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
         ELSE NULL
       END) / SUM(value) * 100000.) / 100000.
       ELSE NULL
-    END AS energy_fee_avg,
+    END, 0) AS energy_fee_avg,
     
     -- Energy fee margin
     ROUND(SUM(energy_margin * value) * 100000.) / 100000. AS energy_margin,
@@ -70,10 +70,10 @@ SELECT
         WHEN night = false THEN energy_margin * value
         ELSE NULL
     END) * 100000.) / 100000. AS energy_margin_day,
-    CASE
+    COALESCE(CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(energy_margin * value) / SUM(value) * 100000.) / 100000.
       ELSE NULL
-    END AS energy_margin_avg,
+    END, 0) AS energy_margin_avg,
     
     -- Transfer fee
     ROUND(SUM(transfer_fee * value) * 100000.) / 100000. AS transfer_fee,
@@ -85,10 +85,10 @@ SELECT
         WHEN night = false THEN transfer_fee * value
         ELSE NULL
     END) * 100000.) / 100000. AS transfer_fee_day,
-    CASE
+    COALESCE(CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(transfer_fee * value) / SUM(value) * 100000.) / 100000.
       ELSE NULL
-    END AS transfer_fee_avg,
+    END, 0) AS transfer_fee_avg,
     
     -- Transfer tax fee
     ROUND(SUM(transfer_tax_fee * value) * 100000.) / 100000. AS transfer_tax_fee,
@@ -100,10 +100,10 @@ SELECT
         WHEN night = false THEN transfer_tax_fee * value
         ELSE NULL
     END) * 100000.) / 100000. AS transfer_tax_fee_day,
-    CASE
+    COALESCE(CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(transfer_tax_fee * value) / SUM(value) * 100000.) / 100000.
       ELSE NULL
-    END AS transfer_tax_fee_avg,
+    END, 0) AS transfer_tax_fee_avg,
     
     -- Price
     ROUND(SUM(CASE
@@ -121,14 +121,14 @@ SELECT
       WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000. AS price_day,
-    CASE
+    COALESCE(CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
         WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
         WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
         ELSE NULL
       END) / SUM(value) * 100000.) / 100000.
       ELSE NULL
-    END AS price_avg,
+    END, 0) AS price_avg,
     
     -- Spot calculations even when fixed price
     ROUND(SUM(((spot_price * (tax_percentage / 100. + 1.0))) * value) * 100000.) / 100000. AS energy_fee_spot_no_margin,
