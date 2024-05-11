@@ -12,9 +12,9 @@ const MOZILLA_USER_AGENT: &str = r#"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv
 const ORIGIN: &str = r#"https://www.wattivahti.fi"#;
 const REFERER: &str = r#"https://www.wattivahti.fi/"#;
 
-pub async fn get_production_data(access_token: &str, metering_point_code: &str, start: &str, stop: &str) -> Result<ConsumptionsResult, anyhow::Error> {
+pub async fn get_production_data(access_token: &str, metering_point_code: &str, start: &str, stop: &str, resolution: &str) -> Result<ConsumptionsResult, anyhow::Error> {
     let res = reqwest::Client::new()
-        .get(format!("{}meterdata2?meteringPointCode={}&measurementType=6&start={}&stop={}&resultStep=PT1H", API_URL, metering_point_code, start, stop))
+        .get(format!("{}meterdata2?meteringPointCode={}&measurementType=6&start={}&stop={}&resultStep={}", API_URL, metering_point_code, start, stop, resolution))
         .header(USER_AGENT, MOZILLA_USER_AGENT)
         .header(AUTHORIZATION, format!("Bearer {}", access_token))
         .header("Origin", ORIGIN)
@@ -43,9 +43,9 @@ pub async fn get_production_data(access_token: &str, metering_point_code: &str, 
     Ok(data)
 }
 
-pub async fn get_consumption_data(access_token: &str, metering_point_code: &str, start: &str, stop: &str) -> Result<ConsumptionsResult, anyhow::Error> {
+pub async fn get_consumption_data(access_token: &str, metering_point_code: &str, start: &str, stop: &str, resolution: &str) -> Result<ConsumptionsResult, anyhow::Error> {
     let res = reqwest::Client::new()
-        .get(format!("{}meterdata2?meteringPointCode={}&measurementType=1&start={}&stop={}&resultStep=PT1H", API_URL, metering_point_code, start, stop))
+        .get(format!("{}meterdata2?meteringPointCode={}&measurementType=1&start={}&stop={}&resultStep={}", API_URL, metering_point_code, start, stop, resolution))
         .header(USER_AGENT, MOZILLA_USER_AGENT)
         .header(AUTHORIZATION, format!("Bearer {}", access_token))
         .header("Origin", ORIGIN)
@@ -96,7 +96,7 @@ mod tests {
         let start = dotenv::var("START").unwrap();
         let stop = dotenv::var("STOP").unwrap();
 
-        let data: ConsumptionsResult = get_production_data(&access_token, &metering_point_code, &start, &stop).await.unwrap();
+        let data: ConsumptionsResult = get_production_data(&access_token, &metering_point_code, &start, &stop, "PT1H").await.unwrap();
         info!("ConsumptionResult: {:#?}", data);
     }
 
@@ -109,7 +109,7 @@ mod tests {
         let start = dotenv::var("START").unwrap();
         let stop = dotenv::var("STOP").unwrap();
 
-        let data: ConsumptionsResult = get_consumption_data(&access_token, &metering_point_code, &start, &stop).await.unwrap();
+        let data: ConsumptionsResult = get_consumption_data(&access_token, &metering_point_code, &start, &stop, "PT1H").await.unwrap();
         info!("ConsumptionResult: {:#?}", data);
     }
 
@@ -122,7 +122,7 @@ mod tests {
         let start = "2023-02-01T00:00:00";
         let stop = "2023-03-01T00:00:00";
 
-        let data: ConsumptionsResult = get_consumption_data(&access_token, &metering_point_code, &start, &stop).await.unwrap();
+        let data: ConsumptionsResult = get_consumption_data(&access_token, &metering_point_code, &start, &stop, "PT1H").await.unwrap();
         info!("ConsumptionResult: {:#?}", data);
     }
 
@@ -406,7 +406,7 @@ mod tests {
         info!("Has spot data: {:#?}", data.getconsumptionsresult.spotdata.is_some());
 
         for (pos, tsv) in data.getconsumptionsresult.consumptiondata.timeseries.values.tsv.iter().enumerate() {
-            let time = &tsv.get_timestamp_utc_calculated(pos);
+            let time = &tsv.get_timestamp_utc_calculated(pos, ResolutionDuration::PT1H);
             if time.is_none() {
                 warn!("Time couldn't be parsed");
                 return;

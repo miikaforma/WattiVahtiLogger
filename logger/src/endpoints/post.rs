@@ -8,6 +8,12 @@ use serde::Deserialize;
 pub struct TimeParams {
     start: String,
     stop: String,
+    #[serde(default = "default_resolution")]
+    resolution: String,
+}
+
+fn default_resolution() -> String {
+    "PT1H".to_string()
 }
 
 /// Update metering data `/metering`
@@ -49,6 +55,7 @@ pub async fn metering_update(
         &access_token,
         &params.start,
         &params.stop,
+        &params.resolution,
     )
     .await
     {
@@ -62,6 +69,7 @@ pub async fn metering_update(
         &access_token,
         &params.start,
         &params.stop,
+        &params.resolution,
     )
     .await
     {

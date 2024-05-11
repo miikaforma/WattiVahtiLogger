@@ -1,4 +1,4 @@
-use api::ConsumptionsResult;
+use api::{ConsumptionsResult, ResolutionDuration};
 use tokio_postgres::{Error, NoTls};
 
 use crate::settings::config_model::{ContractType, SettingsConfig};
@@ -22,6 +22,12 @@ pub async fn upsert_productions_into_timescaledb(
 
     let mut client = connect_to_db().await?;
     let trans = client.transaction().await?;
+    let resolution = &data
+        .getconsumptionsresult
+        .consumptiondata
+        .timeseries
+        .resolution;
+    let resolution_duration = ResolutionDuration::from_str(resolution);
 
     for (pos, tsv) in data
         .getconsumptionsresult
@@ -32,7 +38,7 @@ pub async fn upsert_productions_into_timescaledb(
         .iter()
         .enumerate()
     {
-        let time = &tsv.get_timestamp_utc_calculated(pos);
+        let time = &tsv.get_timestamp_utc_calculated(pos, &resolution_duration);
         if time.is_none() {
             warn!("TimescaleDB | Skipping production logging because time couldn't be parsed");
             continue;
@@ -62,11 +68,11 @@ pub async fn upsert_productions_into_timescaledb(
 
         let tax_percentage = contract.get_tax_percentage();
         let _ = trans
-            .execute("INSERT INTO energies (time, metering_point_code, measure_type, contract_type, source, measure_unit, value, transfer_fee, tax_percentage, spot_price) 
-                                VALUES ($1, $2, $3, $4, 'wattivahti', $5, $6, $7, $8, (SELECT (price / 10.) FROM day_ahead_prices WHERE time = $1))
-                                ON CONFLICT (time, metering_point_code, measure_type) DO UPDATE
-                                    SET contract_type = $4, source = 'wattivahti', measure_unit = $5, value = $6, transfer_fee = $7, tax_percentage = $8, spot_price = EXCLUDED.spot_price",
-            &[&time, &meteringpointcode.to_string(), &measurementtype, &contract_type, &unit.to_string(), &value, &transfer_fee, &tax_percentage])
+            .execute("INSERT INTO energies (time, metering_point_code, measure_type, contract_type, source, measure_unit, value, transfer_fee, tax_percentage, spot_price, resolution_duration) 
+                                VALUES ($1, $2, $3, $4, 'wattivahti', $5, $6, $7, $8, COALESCE((SELECT (price / 10.) FROM day_ahead_prices WHERE time = $1), (SELECT (price / 10.) FROM day_ahead_prices WHERE time = date_trunc('hour', $1))), $9)
+                                ON CONFLICT (time, metering_point_code, measure_type, resolution_duration) DO UPDATE
+                                    SET contract_type = $4, source = 'wattivahti', measure_unit = $5, value = $6, transfer_fee = $7, tax_percentage = $8, spot_price = EXCLUDED.spot_price, resolution_duration = $9",
+            &[&time, &meteringpointcode.to_string(), &measurementtype, &contract_type, &unit.to_string(), &value, &transfer_fee, &tax_percentage, resolution])
         .await?;
 
         messages.push(format!("TimescaleDB | Production {} - {:.2}", time, value));
@@ -92,6 +98,12 @@ pub async fn upsert_consumptions_into_timescaledb(
 
     let mut client = connect_to_db().await?;
     let trans = client.transaction().await?;
+    let resolution = &data
+        .getconsumptionsresult
+        .consumptiondata
+        .timeseries
+        .resolution;
+    let resolution_duration = ResolutionDuration::from_str(resolution);
 
     for (pos, tsv) in data
         .getconsumptionsresult
@@ -102,7 +114,7 @@ pub async fn upsert_consumptions_into_timescaledb(
         .iter()
         .enumerate()
     {
-        let time = &tsv.get_timestamp_utc_calculated(pos);
+        let time = &tsv.get_timestamp_utc_calculated(pos, &resolution_duration);
         if time.is_none() {
             warn!("TimescaleDB | Skipping consumption logging because time couldn't be parsed");
             continue;
@@ -141,11 +153,11 @@ pub async fn upsert_consumptions_into_timescaledb(
 
                 
                 let _ = trans
-                    .execute("INSERT INTO energies (time, metering_point_code, measure_type, contract_type, source, measure_unit, value, energy_basic_fee, energy_fee, transfer_basic_fee, transfer_fee, transfer_tax_fee, tax_percentage, night, spot_price) 
-                                        VALUES ($1, $2, $3, $4, 'wattivahti', $5, $6, $7, $8, $9, $10, $11, $12, $13, (SELECT (price / 10.) FROM day_ahead_prices WHERE time = $1))
-                                        ON CONFLICT (time, metering_point_code, measure_type) DO UPDATE
-                                            SET contract_type = $4, source = 'wattivahti', measure_unit = $5, value = $6, energy_basic_fee = $7, energy_fee = $8, transfer_basic_fee = $9, transfer_fee = $10, transfer_tax_fee = $11, tax_percentage = $12, night = $13, spot_price = EXCLUDED.spot_price",
-                    &[&time, &meteringpointcode.to_string(), &measurementtype, &contract_type, &unit.to_string(), &value, &energy_basic_fee, &energy_fee, &transfer_basic_fee, &transfer_fee, &transfer_tax_fee, &tax_percentage, &is_night])
+                    .execute("INSERT INTO energies (time, metering_point_code, measure_type, contract_type, source, measure_unit, value, energy_basic_fee, energy_fee, transfer_basic_fee, transfer_fee, transfer_tax_fee, tax_percentage, night, spot_price, resolution_duration) 
+                                        VALUES ($1, $2, $3, $4, 'wattivahti', $5, $6, $7, $8, $9, $10, $11, $12, $13, COALESCE((SELECT (price / 10.) FROM day_ahead_prices WHERE time = $1), (SELECT (price / 10.) FROM day_ahead_prices WHERE time = date_trunc('hour', $1))), $14)
+                                        ON CONFLICT (time, metering_point_code, measure_type, resolution_duration) DO UPDATE
+                                            SET contract_type = $4, source = 'wattivahti', measure_unit = $5, value = $6, energy_basic_fee = $7, energy_fee = $8, transfer_basic_fee = $9, transfer_fee = $10, transfer_tax_fee = $11, tax_percentage = $12, night = $13, spot_price = EXCLUDED.spot_price, resolution_duration = $14",
+                    &[&time, &meteringpointcode.to_string(), &measurementtype, &contract_type, &unit.to_string(), &value, &energy_basic_fee, &energy_fee, &transfer_basic_fee, &transfer_fee, &transfer_tax_fee, &tax_percentage, &is_night, resolution])
                 .await?;
             }
             ContractType::Spot => {
@@ -156,11 +168,11 @@ pub async fn upsert_consumptions_into_timescaledb(
                 let energy_margin = contract.get_energy_margin();
 
                 let _ = trans
-                    .execute("INSERT INTO energies (time, metering_point_code, measure_type, contract_type, source, measure_unit, value, energy_basic_fee, energy_margin, transfer_basic_fee, transfer_fee, transfer_tax_fee, tax_percentage, night, spot_price) 
-                                        VALUES ($1, $2, $3, $4, 'wattivahti', $5, $6, $7, $8, $9, $10, $11, $12, $13, (SELECT (price / 10.) FROM day_ahead_prices WHERE time = $1))
-                                        ON CONFLICT (time, metering_point_code, measure_type) DO UPDATE
-                                            SET contract_type = $4, source = 'wattivahti', measure_unit = $5, value = $6, energy_basic_fee = $7, energy_margin = $8, transfer_basic_fee = $9, transfer_fee = $10, transfer_tax_fee = $11, tax_percentage = $12, night = $13, spot_price = EXCLUDED.spot_price",
-                    &[&time, &meteringpointcode.to_string(), &measurementtype, &contract_type, &unit.to_string(), &value, &energy_basic_fee, &energy_margin, &transfer_basic_fee, &transfer_fee, &transfer_tax_fee, &tax_percentage, &is_night])
+                    .execute("INSERT INTO energies (time, metering_point_code, measure_type, contract_type, source, measure_unit, value, energy_basic_fee, energy_margin, transfer_basic_fee, transfer_fee, transfer_tax_fee, tax_percentage, night, spot_price, resolution_duration) 
+                                        VALUES ($1, $2, $3, $4, 'wattivahti', $5, $6, $7, $8, $9, $10, $11, $12, $13, COALESCE((SELECT (price / 10.) FROM day_ahead_prices WHERE time = $1), (SELECT (price / 10.) FROM day_ahead_prices WHERE time = date_trunc('hour', $1))), $14)
+                                        ON CONFLICT (time, metering_point_code, measure_type, resolution_duration) DO UPDATE
+                                            SET contract_type = $4, source = 'wattivahti', measure_unit = $5, value = $6, energy_basic_fee = $7, energy_margin = $8, transfer_basic_fee = $9, transfer_fee = $10, transfer_tax_fee = $11, tax_percentage = $12, night = $13, spot_price = EXCLUDED.spot_price, resolution_duration = $14",
+                    &[&time, &meteringpointcode.to_string(), &measurementtype, &contract_type, &unit.to_string(), &value, &energy_basic_fee, &energy_margin, &transfer_basic_fee, &transfer_fee, &transfer_tax_fee, &tax_percentage, &is_night, resolution])
                 .await?;
             }
             ContractType::None => todo!(),
@@ -181,6 +193,12 @@ pub async fn refresh_consumption_views() -> Result<(), Error> {
     let client = connect_to_db().await?;
 
     // Execute the refresh commands
+    client
+        .execute(
+            "CALL refresh_continuous_aggregate('energies_consumption_15min_by_15min', NULL, NULL)",
+            &[],
+        )
+        .await?;
     client
         .execute(
             "CALL refresh_continuous_aggregate('energies_consumption_hour_by_hour', NULL, NULL)",
@@ -213,6 +231,12 @@ pub async fn refresh_production_views() -> Result<(), Error> {
     let client = connect_to_db().await?;
 
     // Execute the refresh commands
+    client
+        .execute(
+            "CALL refresh_continuous_aggregate('energies_production_15min_by_15min', NULL, NULL)",
+            &[],
+        )
+        .await?;
     client
         .execute(
             "CALL refresh_continuous_aggregate('energies_production_hour_by_hour', NULL, NULL)",

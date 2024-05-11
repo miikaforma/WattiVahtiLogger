@@ -1,4 +1,4 @@
-use api::ConsumptionsResult;
+use api::{ConsumptionsResult, ResolutionDuration};
 use chrono::{DateTime, Utc};
 use influxdb::{Client, InfluxDbWriteable, ReadQuery};
 
@@ -21,6 +21,23 @@ pub async fn upsert_productions_into_influxdb(
         return Ok(());
     }
 
+    let resolution = &data
+        .getconsumptionsresult
+        .consumptiondata
+        .timeseries
+        .resolution;
+
+    let resolution_duration = ResolutionDuration::from_str(resolution);
+
+    let skip_pt15m: bool = dotenv::var("INFLUXDB_SKIP_PT15M")
+        .unwrap_or_else(|_| String::from("false"))
+        .parse()
+        .unwrap_or(false);
+
+    if skip_pt15m && resolution_duration.eq(&ResolutionDuration::PT15M) {
+        return Ok(());
+    }
+
     let mut messages = Vec::new();
 
     let client = connect_to_db().await;
@@ -33,7 +50,7 @@ pub async fn upsert_productions_into_influxdb(
         .iter()
         .enumerate()
     {
-        let time = &tsv.get_timestamp_utc_calculated(pos);
+        let time = &tsv.get_timestamp_utc_calculated(pos, &resolution_duration);
         if time.is_none() {
             warn!("InfluxDB | Skipping production logging because time couldn't be parsed");
             continue;
@@ -64,8 +81,10 @@ pub async fn upsert_productions_into_influxdb(
             time: time,
             meteringpointcode_tag: meteringpointcode.to_string(),
             measurementtype_tag: measurementtype.to_string(),
+            resolution_duration_tag: resolution.to_string(),
             meteringpointcode: meteringpointcode.to_string(),
             measurementtype: measurementtype.to_string(),
+            resolution_duration: resolution.to_string(),
             unit: unit.to_string(),
             timestamp: time.format("%Y-%m-%dT%H:%M:%S").to_string(),
             value: value,
@@ -104,6 +123,22 @@ pub async fn upsert_consumptions_into_influxdb(
         return Ok(());
     }
 
+    let resolution = &data
+        .getconsumptionsresult
+        .consumptiondata
+        .timeseries
+        .resolution;
+    let resolution_duration = ResolutionDuration::from_str(resolution);
+
+    let skip_pt15m: bool = dotenv::var("INFLUXDB_SKIP_PT15M")
+        .unwrap_or_else(|_| String::from("false"))
+        .parse()
+        .unwrap_or(false);
+
+    if skip_pt15m && resolution_duration.eq(&ResolutionDuration::PT15M) {
+        return Ok(());
+    }
+
     let mut messages = Vec::new();
 
     let client = connect_to_db().await;
@@ -116,7 +151,7 @@ pub async fn upsert_consumptions_into_influxdb(
         .iter()
         .enumerate()
     {
-        let time = &tsv.get_timestamp_utc_calculated(pos);
+        let time = &tsv.get_timestamp_utc_calculated(pos, &resolution_duration);
         if time.is_none() {
             warn!("InfluxDB | Skipping consumption logging because time couldn't be parsed");
             continue;
@@ -150,8 +185,10 @@ pub async fn upsert_consumptions_into_influxdb(
             time: time,
             meteringpointcode_tag: meteringpointcode.to_string(),
             measurementtype_tag: measurementtype.to_string(),
+            resolution_duration_tag: resolution.to_string(),
             meteringpointcode: meteringpointcode.to_string(),
             measurementtype: measurementtype.to_string(),
+            resolution_duration: resolution.to_string(),
             unit: unit.to_string(),
             timestamp: time.format("%Y-%m-%dT%H:%M:%S").to_string(),
             value: value,

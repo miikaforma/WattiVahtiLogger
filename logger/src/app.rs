@@ -50,18 +50,19 @@ pub async fn fetch_production_for_interval(
     access_token: &str,
     start: &str,
     stop: &str,
+    resolution: &str,
 ) -> Result<(), anyhow::Error> {
     let metering_point_code = dotenv::var("PRODUCTION_METERING_POINT_CODE").unwrap();
 
     info!(
-        "Fetching production data for interval {} - {} in metering point {}",
-        &start, &stop, &metering_point_code
+        "Fetching production data for interval {} - {} in metering point {} with resolution {}",
+        &start, &stop, &metering_point_code, &resolution
     );
 
     let config = settings::config::load_settings(format!("configs/{}.yaml", "production"))
         .expect("Failed to load settings file.");
 
-    match get_production_data(&access_token, &metering_point_code, &start, &stop).await {
+    match get_production_data(&access_token, &metering_point_code, &start, &stop, &resolution).await {
         Ok(data) => {
             let timescale_future = upsert_productions_into_timescaledb(&data, &config);
             let influx_future = upsert_productions_into_influxdb(&data, &config);
@@ -93,18 +94,19 @@ pub async fn fetch_consumption_for_interval(
     access_token: &str,
     start: &str,
     stop: &str,
+    resolution: &str,
 ) -> Result<(), anyhow::Error> {
     let metering_point_code = dotenv::var("CONSUMPTION_METERING_POINT_CODE").unwrap();
 
     info!(
-        "Fetching consumption data for interval {} - {} in metering point {}",
-        &start, &stop, &metering_point_code
+        "Fetching consumption data for interval {} - {} in metering point {} with resolution {}",
+        &start, &stop, &metering_point_code, &resolution
     );
 
     let config = settings::config::load_settings(format!("configs/{}.yaml", "production"))
         .expect("Failed to load settings file.");
 
-    match get_consumption_data(&access_token, &metering_point_code, &start, &stop).await {
+    match get_consumption_data(&access_token, &metering_point_code, &start, &stop, &resolution).await {
         Ok(data) => {
             let timescale_future = upsert_consumptions_into_timescaledb(&data, &config);
             let influx_future = upsert_consumptions_into_influxdb(&data, &config);
@@ -169,13 +171,13 @@ mod tests {
             access_token = result.access_token.unwrap();
         }
 
-        if let Err(err) = fetch_consumption_for_interval(&access_token, &start, &stop).await
+        if let Err(err) = fetch_consumption_for_interval(&access_token, &start, &stop, "PT1H").await
         {
             // Handle the error here
             panic!("Error fetching consumptions: {:?}", err);
         }
 
-        if let Err(err) = fetch_production_for_interval(&access_token, &start, &stop).await
+        if let Err(err) = fetch_production_for_interval(&access_token, &start, &stop, "PT1H").await
         {
             // Handle the error here
             panic!("Error fetching productions: {:?}", err);

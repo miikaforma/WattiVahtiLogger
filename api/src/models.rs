@@ -133,6 +133,22 @@ pub struct TSV {
     pub unit: Option<String>,
 }
 
+#[derive(PartialEq, Eq)]
+pub enum ResolutionDuration {
+    PT1H,
+    PT15M,
+}
+
+impl ResolutionDuration {
+    pub fn from_str(s: &str) -> ResolutionDuration {
+        match s {
+            "PT1H" => ResolutionDuration::PT1H,
+            "PT15M" | "PT15MIN" => ResolutionDuration::PT15M,
+            _ => ResolutionDuration::PT1H,
+        }
+    }
+}
+
 impl TSV {
     #[deprecated(
         note = "Unreliable since WattiVahti provides incorrect timestamps. Calculate correct one with `get_timestamp_utc_calculated` instead"
@@ -154,7 +170,7 @@ impl TSV {
         )
     }
 
-    pub fn get_timestamp_utc_calculated(&self, index: usize) -> Option<DateTime<Utc>> {
+    pub fn get_timestamp_utc_calculated(&self, index: usize, resolution: &ResolutionDuration) -> Option<DateTime<Utc>> {
         if self.start.is_none() {
             return None;
         }
@@ -174,7 +190,10 @@ impl TSV {
 
         debug!("Time UTC {}", result);
 
-        let result = result + ChronoDuration::hours(index as i64);
+        let result = match resolution {
+            ResolutionDuration::PT1H => result + ChronoDuration::hours(index as i64),
+            ResolutionDuration::PT15M => result + ChronoDuration::minutes(index as i64 * 15),
+        };
 
         debug!("Time position UTC {}", result);
 

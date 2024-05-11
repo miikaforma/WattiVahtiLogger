@@ -43,6 +43,16 @@ async fn main() {
         .unwrap_or(Ok(3_600_000))
         .unwrap();
 
+    let fetch_pt1h = dotenv::var("FETCH_PT1H_RESOLUTION")
+        .map(|var| var.parse::<bool>())
+        .unwrap_or(Ok(false))
+        .unwrap();
+
+    let fetch_pt15m = dotenv::var("FETCH_PT15M_RESOLUTION")
+        .map(|var| var.parse::<bool>())
+        .unwrap_or(Ok(false))
+        .unwrap();
+
     let mut access_token = dotenv::var("ACCESS_TOKEN").unwrap_or("".to_string());
     let wattivahti_username = dotenv::var("WATTIVAHTI_USERNAME").unwrap_or("".to_string());
     let wattivahti_password = dotenv::var("WATTIVAHTI_PASSWORD").unwrap_or("".to_string());
@@ -107,19 +117,41 @@ async fn main() {
 
             let start_stop = get_start_stop();
 
-            let _ = fetch_consumption_for_interval(
-                &access_token,
-                &start_stop.0,
-                &start_stop.1,
-            )
-            .await;
+            if fetch_pt1h {
+                let _ = fetch_consumption_for_interval(
+                    &access_token,
+                    &start_stop.0,
+                    &start_stop.1,
+                    "PT1H",
+                )
+                .await;
 
-            let _ = fetch_production_for_interval(
-                &access_token,
-                &start_stop.0,
-                &start_stop.1,
-            )
-            .await;
+                let _ = fetch_production_for_interval(
+                    &access_token,
+                    &start_stop.0,
+                    &start_stop.1,
+                    "PT1H",
+                )
+                .await;
+            }
+
+            if fetch_pt15m {
+                let _ = fetch_consumption_for_interval(
+                    &access_token,
+                    &start_stop.0,
+                    &start_stop.1,
+                    "PT15MIN",
+                )
+                .await;
+
+                let _ = fetch_production_for_interval(
+                    &access_token,
+                    &start_stop.0,
+                    &start_stop.1,
+                    "PT15MIN",
+                )
+                .await;
+            }
 
             let next_fetch_interval = get_next_fetch_milliseconds() as u64;
             info!(
