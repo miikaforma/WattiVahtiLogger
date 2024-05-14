@@ -11,11 +11,11 @@ pub struct TimeSeriesValue {
     #[influxdb(tag)]
     pub measurementtype_tag: String,
     #[influxdb(tag)]
-    pub resolution_duration_tag: String,
+    pub resolution_duration_tag: Option<String>,
 
     pub meteringpointcode: String,
     pub measurementtype: String,
-    pub resolution_duration: String,
+    pub resolution_duration: Option<String>,
     pub unit: String,
     pub timestamp: String,
     pub value: f32,
