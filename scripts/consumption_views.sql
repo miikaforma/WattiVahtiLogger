@@ -37,23 +37,23 @@ SELECT
     
     -- Energy fee
     ROUND(SUM(CASE
-      WHEN contract_type = 2 THEN energy_fee * value
+      WHEN contract_type IN (2, 4) THEN energy_fee * value
       WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000. AS energy_fee,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = true THEN energy_fee * value
+      WHEN contract_type IN (2, 4) AND night = true THEN energy_fee * value
       WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000. AS energy_fee_night,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = false THEN energy_fee * value
+      WHEN contract_type IN (2, 4) AND night = false THEN energy_fee * value
       WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000. AS energy_fee_day,
     COALESCE(CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
-        WHEN contract_type = 2 THEN energy_fee * value
+        WHEN contract_type IN (2, 4) THEN energy_fee * value
         WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
         ELSE NULL
       END) / SUM(value) * 100000.) / 100000.
@@ -107,23 +107,23 @@ SELECT
     
     -- Price
     ROUND(SUM(CASE
-      WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000. AS price,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = true THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) AND night = true THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000. AS price_night,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = false THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) AND night = false THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000. AS price_day,
     COALESCE(CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
-        WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+        WHEN contract_type IN (2, 4) THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
         WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
         ELSE NULL
       END) / SUM(value) * 100000.) / 100000.
@@ -183,23 +183,23 @@ SELECT
     
 	 -- Energy fee
     ROUND(SUM(CASE
-      WHEN contract_type = 2 THEN energy_fee * value
+      WHEN contract_type IN (2, 4) THEN energy_fee * value
       WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000. AS energy_fee,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = true THEN energy_fee * value
+      WHEN contract_type IN (2, 4) AND night = true THEN energy_fee * value
       WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000. AS energy_fee_night,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = false THEN energy_fee * value
+      WHEN contract_type IN (2, 4) AND night = false THEN energy_fee * value
       WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000. AS energy_fee_day,
     COALESCE(CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
-        WHEN contract_type = 2 THEN energy_fee * value
+        WHEN contract_type IN (2, 4) THEN energy_fee * value
         WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
         ELSE NULL
       END) / SUM(value) * 100000.) / 100000.
@@ -253,23 +253,23 @@ SELECT
     
     -- Price
     ROUND(SUM(CASE
-      WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000. AS price,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = true THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) AND night = true THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000. AS price_night,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = false THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) AND night = false THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000. AS price_day,
     COALESCE(CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
-        WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+        WHEN contract_type IN (2, 4) THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
         WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
         ELSE NULL
       END) / SUM(value) * 100000.) / 100000.
@@ -329,23 +329,23 @@ SELECT
     
 	 -- Energy fee
     ROUND(SUM(CASE
-      WHEN contract_type = 2 THEN energy_fee * value
+      WHEN contract_type IN (2, 4) THEN energy_fee * value
       WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000. AS energy_fee,
     COALESCE(ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = true THEN energy_fee * value
+      WHEN contract_type IN (2, 4) AND night = true THEN energy_fee * value
       WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000., 0) AS energy_fee_night,
     COALESCE(ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = false THEN energy_fee * value
+      WHEN contract_type IN (2, 4) AND night = false THEN energy_fee * value
       WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000., 0) AS energy_fee_day,
     CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
-        WHEN contract_type = 2 THEN energy_fee * value
+        WHEN contract_type IN (2, 4) THEN energy_fee * value
         WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
         ELSE NULL
       END) / SUM(value) * 100000.) / 100000.
@@ -399,23 +399,23 @@ SELECT
     
     -- Price
     ROUND(SUM(CASE
-      WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000. AS price,
     COALESCE(ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = true THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) AND night = true THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000., 0) AS price_night,
     COALESCE(ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = false THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) AND night = false THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000., 0) AS price_day,
     CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
-        WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+        WHEN contract_type IN (2, 4) THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
         WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
         ELSE NULL
       END) / SUM(value) * 100000.) / 100000.
@@ -474,23 +474,23 @@ SELECT
     
 	 -- Energy fee
     ROUND(SUM(CASE
-      WHEN contract_type = 2 THEN energy_fee * value
+      WHEN contract_type IN (2, 4) THEN energy_fee * value
       WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000. AS energy_fee,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = true THEN energy_fee * value
+      WHEN contract_type IN (2, 4) AND night = true THEN energy_fee * value
       WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000. AS energy_fee_night,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = false THEN energy_fee * value
+      WHEN contract_type IN (2, 4) AND night = false THEN energy_fee * value
       WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000. AS energy_fee_day,
     CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
-        WHEN contract_type = 2 THEN energy_fee * value
+        WHEN contract_type IN (2, 4) THEN energy_fee * value
         WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
         ELSE NULL
       END) / SUM(value) * 100000.) / 100000.
@@ -544,23 +544,23 @@ SELECT
     
     -- Price
     ROUND(SUM(CASE
-      WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000. AS price,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = true THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) AND night = true THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000. AS price_night,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = false THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) AND night = false THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000. AS price_day,
     CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
-        WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+        WHEN contract_type IN (2, 4) THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
         WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
         ELSE NULL
       END) / SUM(value) * 100000.) / 100000.
@@ -619,23 +619,23 @@ SELECT
     
 	 -- Energy fee
     ROUND(SUM(CASE
-      WHEN contract_type = 2 THEN energy_fee * value
+      WHEN contract_type IN (2, 4) THEN energy_fee * value
       WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000. AS energy_fee,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = true THEN energy_fee * value
+      WHEN contract_type IN (2, 4) AND night = true THEN energy_fee * value
       WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000. AS energy_fee_night,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = false THEN energy_fee * value
+      WHEN contract_type IN (2, 4) AND night = false THEN energy_fee * value
       WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
       ELSE NULL
     END) * 100000.) / 100000. AS energy_fee_day,
     CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
-        WHEN contract_type = 2 THEN energy_fee * value
+        WHEN contract_type IN (2, 4) THEN energy_fee * value
         WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin) * value
         ELSE NULL
       END) / SUM(value) * 100000.) / 100000.
@@ -689,23 +689,23 @@ SELECT
     
     -- Price
     ROUND(SUM(CASE
-      WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000. AS price,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = true THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) AND night = true THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 AND night = true THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000. AS price_night,
     ROUND(SUM(CASE
-      WHEN contract_type = 2 AND night = false THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+      WHEN contract_type IN (2, 4) AND night = false THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
       WHEN contract_type = 3 AND night = false THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
       ELSE NULL
     END) * 100000.) / 100000. AS price_day,
     CASE
       WHEN SUM(value) != 0 THEN ROUND(SUM(CASE
-        WHEN contract_type = 2 THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
+        WHEN contract_type IN (2, 4) THEN (energy_fee + transfer_fee + transfer_tax_fee) * value
         WHEN contract_type = 3 THEN ((spot_price * (tax_percentage / 100. + 1.0)) + energy_margin + transfer_fee + transfer_tax_fee) * value
         ELSE NULL
       END) / SUM(value) * 100000.) / 100000.
