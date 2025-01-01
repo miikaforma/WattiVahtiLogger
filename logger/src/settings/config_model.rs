@@ -11,6 +11,8 @@ pub enum ContractType {
     Fixed,
     #[serde(rename = "spot")]
     Spot,
+    #[serde(rename = "hybrid")]
+    Hybrid,
 }
 
 impl From<i16> for ContractType {
@@ -19,6 +21,7 @@ impl From<i16> for ContractType {
             1 => ContractType::None,
             2 => ContractType::Fixed,
             3 => ContractType::Spot,
+            4 => ContractType::Hybrid,
             _ => panic!("Invalid value for ContractType"),
         }
     }
@@ -30,6 +33,7 @@ impl From<ContractType> for i16 {
             ContractType::None => 1,
             ContractType::Fixed => 2,
             ContractType::Spot => 3,
+            ContractType::Hybrid => 4,
         }
     }
 }
@@ -102,7 +106,7 @@ impl ContractConfig {
     pub fn get_energy_fee(&self, spot_price: f32, time: DateTime<Utc>) -> f32 {
         match self.contract_type {
             ContractType::None => 0.0,
-            ContractType::Fixed => self.get_energy_fee_fixed(time),
+            ContractType::Fixed | ContractType::Hybrid => self.get_energy_fee_fixed(time),
             ContractType::Spot => self.get_energy_fee_spot(spot_price),
         }
     }
@@ -138,7 +142,7 @@ impl ContractConfig {
 
     pub fn validate_energy(&self) -> Result<(), &'static str> {
         match self.contract_type {
-            ContractType::Fixed => {
+            ContractType::Fixed | ContractType::Hybrid => {
                 if self.energy.day_fee.is_none() || self.energy.night_fee.is_none() {
                     return Err("For Fixed contract type, day_fee and night_fee are required");
                 }

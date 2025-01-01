@@ -1,6 +1,6 @@
 [package]
 name = "logger"
-version = "0.1.0"
+version = "3.2.0"
 authors = ["miikaforma <miika.forma@codecontrol.fi>"]
 description = "Library for logging the WattiVahti data"
 edition = "2018"

@@ -142,7 +142,7 @@ pub async fn upsert_consumptions_into_timescaledb(
         let tax_percentage = contract.get_tax_percentage();
 
         match contract.contract_type {
-            ContractType::Fixed => {
+            ContractType::Fixed | ContractType::Hybrid => {
                 let transfer_basic_fee = contract.get_transfer_basic_fee();
                 let transfer_fee = contract.get_transfer_fee(time);
                 let transfer_tax_fee = contract.get_transfer_tax_fee();
