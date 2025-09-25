@@ -67,12 +67,18 @@ pub async fn upsert_productions_into_timescaledb(
         // time, metering_point_code, measure_type, contract_type, source, measure_unit, value, energy_basic_fee, energy_fee, energy_margin, transfer_basic_fee, transfer_fee, tax_fee, tax_percentage
 
         let tax_percentage = contract.get_tax_percentage();
+
+        let transfer_basic_fee = contract.get_transfer_basic_fee();
+        let transfer_tax_fee = contract.get_transfer_tax_fee();
+        let energy_basic_fee = contract.get_energy_basic_fee();
+        let energy_margin = contract.get_energy_margin();
+
         let _ = trans
-            .execute("INSERT INTO energies (time, metering_point_code, measure_type, contract_type, source, measure_unit, value, transfer_fee, tax_percentage, spot_price, resolution_duration) 
-                                VALUES ($1, $2, $3, $4, 'wattivahti', $5, $6, $7, $8, COALESCE((SELECT (price / 10.) FROM day_ahead_prices WHERE time = $1), (SELECT (price / 10.) FROM day_ahead_prices WHERE time = date_trunc('hour', $1))), $9)
+            .execute("INSERT INTO energies (time, metering_point_code, measure_type, contract_type, source, measure_unit, value, energy_basic_fee, energy_margin, transfer_basic_fee, transfer_fee, transfer_tax_fee, tax_percentage, spot_price, resolution_duration)
+                                VALUES ($1, $2, $3, $4, 'wattivahti', $5, $6, $7, $8, $9, $10, $11, $12, COALESCE((SELECT (price / 10.) FROM day_ahead_prices WHERE time = $1), (SELECT (price / 10.) FROM day_ahead_prices WHERE time = date_trunc('hour', $1))), $13)
                                 ON CONFLICT (time, metering_point_code, measure_type, resolution_duration) DO UPDATE
-                                    SET contract_type = $4, source = 'wattivahti', measure_unit = $5, value = $6, transfer_fee = $7, tax_percentage = $8, spot_price = EXCLUDED.spot_price, resolution_duration = $9",
-            &[&time, &meteringpointcode.to_string(), &measurementtype, &contract_type, &unit.to_string(), &value, &transfer_fee, &tax_percentage, resolution])
+                                    SET contract_type = $4, source = 'wattivahti', measure_unit = $5, value = $6, energy_basic_fee = $7, energy_margin = $8, transfer_basic_fee = $9, transfer_fee = $10, transfer_tax_fee = $11, tax_percentage = $12, spot_price = EXCLUDED.spot_price, resolution_duration = $13",
+            &[&time, &meteringpointcode.to_string(), &measurementtype, &contract_type, &unit.to_string(), &value, &energy_basic_fee, &energy_margin, &transfer_basic_fee, &transfer_fee, &transfer_tax_fee, &tax_percentage, resolution])
         .await?;
 
         messages.push(format!("TimescaleDB | Production {} - {:.2}", time, value));

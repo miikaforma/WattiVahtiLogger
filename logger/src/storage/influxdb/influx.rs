@@ -77,6 +77,11 @@ pub async fn upsert_productions_into_influxdb(
         let value = tsv.quantity.unwrap();
         let tax_percentage = contract.get_tax_percentage();
 
+        let transfer_basic_fee = contract.get_transfer_basic_fee();
+        let transfer_tax_fee = contract.get_transfer_tax_fee();
+        let energy_basic_fee = contract.get_energy_basic_fee();
+        let energy_fee = contract.get_energy_fee(price, time);
+
         let current_data = TimeSeriesValue {
             time: time,
             meteringpointcode_tag: meteringpointcode.to_string(),
@@ -90,11 +95,11 @@ pub async fn upsert_productions_into_influxdb(
             value: value,
             price: price / 1000.0,
 
-            transfer_basic_fee: None,
+            transfer_basic_fee: Some(transfer_basic_fee),
             transfer_fee: Some(transfer_fee),
-            tax_fee: None,
-            basic_fee: None,
-            energy_fee: None,
+            tax_fee: Some(transfer_tax_fee),
+            basic_fee: Some(energy_basic_fee),
+            energy_fee: Some(energy_fee),
 
             contract_type: contract.contract_type.clone().into(),
             spot_margin: None,
