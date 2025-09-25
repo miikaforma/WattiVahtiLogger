@@ -1,8 +1,9 @@
-use chrono_tz::Europe::Helsinki;
-use serde::{Deserialize, Serialize};
-use chrono::TimeZone;
-use chrono::{NaiveDateTime, DateTime, Utc};
 use chrono::Duration as ChronoDuration;
+use chrono::TimeZone;
+use chrono::{DateTime, NaiveDateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+use crate::get_timezone;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -48,9 +49,14 @@ impl Sum {
             return None;
         }
 
-        Some(Utc.from_utc_datetime(&Helsinki.from_local_datetime(&naive_time.unwrap())
-            .unwrap()
-            .naive_utc()))
+        Some(
+            Utc.from_utc_datetime(
+                &get_timezone()
+                    .from_local_datetime(&naive_time.unwrap())
+                    .unwrap()
+                    .naive_utc(),
+            ),
+        )
     }
     pub fn get_stop_utc(&self) -> Option<DateTime<Utc>> {
         let naive_time = NaiveDateTime::parse_from_str(&self.stop, "%Y-%m-%dT%H:%M:%S");
@@ -58,9 +64,14 @@ impl Sum {
             return None;
         }
 
-        Some(Utc.from_utc_datetime(&Helsinki.from_local_datetime(&naive_time.unwrap())
-            .unwrap()
-            .naive_utc()))
+        Some(
+            Utc.from_utc_datetime(
+                &get_timezone()
+                    .from_local_datetime(&naive_time.unwrap())
+                    .unwrap()
+                    .naive_utc(),
+            ),
+        )
     }
 }
 
@@ -80,9 +91,14 @@ impl TimeSeries {
             return None;
         }
 
-        Some(Utc.from_utc_datetime(&Helsinki.from_local_datetime(&naive_time.unwrap())
-            .unwrap()
-            .naive_utc()))
+        Some(
+            Utc.from_utc_datetime(
+                &get_timezone()
+                    .from_local_datetime(&naive_time.unwrap())
+                    .unwrap()
+                    .naive_utc(),
+            ),
+        )
     }
     pub fn get_stop_utc(&self) -> Option<DateTime<Utc>> {
         let naive_time = NaiveDateTime::parse_from_str(&self.stop, "%Y-%m-%dT%H:%M:%S");
@@ -90,9 +106,14 @@ impl TimeSeries {
             return None;
         }
 
-        Some(Utc.from_utc_datetime(&Helsinki.from_local_datetime(&naive_time.unwrap())
-            .unwrap()
-            .naive_utc()))
+        Some(
+            Utc.from_utc_datetime(
+                &get_timezone()
+                    .from_local_datetime(&naive_time.unwrap())
+                    .unwrap()
+                    .naive_utc(),
+            ),
+        )
     }
 }
 
@@ -112,39 +133,69 @@ pub struct TSV {
     pub unit: Option<String>,
 }
 
+#[derive(PartialEq, Eq)]
+pub enum ResolutionDuration {
+    PT1H,
+    PT15M,
+}
+
+impl ResolutionDuration {
+    pub fn from_str(s: &str) -> ResolutionDuration {
+        match s {
+            "PT1H" => ResolutionDuration::PT1H,
+            "PT15M" | "PT15MIN" => ResolutionDuration::PT15M,
+            _ => ResolutionDuration::PT1H,
+        }
+    }
+}
+
 impl TSV {
-    #[deprecated(note="Unreliable since WattiVahti provides incorrect timestamps. Calculate correct one with `get_timestamp_utc_calculated` instead")]
+    #[deprecated(
+        note = "Unreliable since WattiVahti provides incorrect timestamps. Calculate correct one with `get_timestamp_utc_calculated` instead"
+    )]
     pub fn get_timestamp_utc(&self) -> Option<DateTime<Utc>> {
         let naive_time = NaiveDateTime::parse_from_str(&self.time, "%Y-%m-%dT%H:%M:%S");
         if naive_time.is_err() {
             return None;
         }
-        // println!("System Time UTC {}", naive_time.unwrap());
+        debug!("System Time UTC {}", naive_time.unwrap());
 
-        Some(Utc.from_utc_datetime(&Helsinki.from_local_datetime(&naive_time.unwrap())
-            .unwrap()
-            .naive_utc()))
+        Some(
+            Utc.from_utc_datetime(
+                &get_timezone()
+                    .from_local_datetime(&naive_time.unwrap())
+                    .unwrap()
+                    .naive_utc(),
+            ),
+        )
     }
 
-    pub fn get_timestamp_utc_calculated(&self, index: usize) -> Option<DateTime<Utc>> {
+    pub fn get_timestamp_utc_calculated(&self, index: usize, resolution: &ResolutionDuration) -> Option<DateTime<Utc>> {
         if self.start.is_none() {
             return None;
         }
-        let naive_time = NaiveDateTime::parse_from_str(&self.start.as_ref().unwrap(), "%Y-%m-%dT%H:%M:%S");
+        let naive_time =
+            NaiveDateTime::parse_from_str(&self.start.as_ref().unwrap(), "%Y-%m-%dT%H:%M:%S");
         if naive_time.is_err() {
             return None;
         }
-        // println!("Time Helsinki {}", naive_time.unwrap());
+        debug!("Time Local {}", naive_time.unwrap());
 
-        let result = Utc.from_utc_datetime(&Helsinki.from_local_datetime(&naive_time.unwrap())
-            .unwrap()
-            .naive_utc());
+        let result = Utc.from_utc_datetime(
+            &get_timezone()
+                .from_local_datetime(&naive_time.unwrap())
+                .unwrap()
+                .naive_utc(),
+        );
 
-        // println!("Time UTC {}", result);
+        debug!("Time UTC {}", result);
 
-        let result = result + ChronoDuration::hours(index as i64);
+        let result = match resolution {
+            ResolutionDuration::PT1H => result + ChronoDuration::hours(index as i64),
+            ResolutionDuration::PT15M => result + ChronoDuration::minutes(index as i64 * 15),
+        };
 
-        // println!("Time position UTC {}", result);
+        debug!("Time position UTC {}", result);
 
         Some(result)
     }
@@ -153,29 +204,41 @@ impl TSV {
         if self.start.is_none() {
             return None;
         }
-        let naive_time = NaiveDateTime::parse_from_str(&self.start.as_ref().unwrap(), "%Y-%m-%dT%H:%M:%S");
+        let naive_time =
+            NaiveDateTime::parse_from_str(&self.start.as_ref().unwrap(), "%Y-%m-%dT%H:%M:%S");
         if naive_time.is_err() {
             return None;
         }
-        // println!("System Time UTC {}", naive_time.unwrap());
+        debug!("System Time UTC {}", naive_time.unwrap());
 
-        Some(Utc.from_utc_datetime(&Helsinki.from_local_datetime(&naive_time.unwrap())
-            .unwrap()
-            .naive_utc()))
+        Some(
+            Utc.from_utc_datetime(
+                &get_timezone()
+                    .from_local_datetime(&naive_time.unwrap())
+                    .unwrap()
+                    .naive_utc(),
+            ),
+        )
     }
 
     pub fn get_stop_utc(&self) -> Option<DateTime<Utc>> {
         if self.stop.is_none() {
             return None;
         }
-        let naive_time = NaiveDateTime::parse_from_str(&self.stop.as_ref().unwrap(), "%Y-%m-%dT%H:%M:%S");
+        let naive_time =
+            NaiveDateTime::parse_from_str(&self.stop.as_ref().unwrap(), "%Y-%m-%dT%H:%M:%S");
         if naive_time.is_err() {
             return None;
         }
-        // println!("System Time UTC {}", naive_time.unwrap());
+        debug!("System Time UTC {}", naive_time.unwrap());
 
-        Some(Utc.from_utc_datetime(&Helsinki.from_local_datetime(&naive_time.unwrap())
-            .unwrap()
-            .naive_utc()))
+        Some(
+            Utc.from_utc_datetime(
+                &get_timezone()
+                    .from_local_datetime(&naive_time.unwrap())
+                    .unwrap()
+                    .naive_utc(),
+            ),
+        )
     }
 }

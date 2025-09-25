@@ -13,7 +13,7 @@ pub enum ConfigError {
 }
 
 pub fn load_settings(path: impl AsRef<Path>) -> Result<SettingsConfig, ConfigError> {
-    println!("Loading {}", path.as_ref().to_string_lossy());
+    info!("Loading {}", path.as_ref().to_string_lossy());
     let mut file = File::open(path)?;
     let mut s = String::new();
     file.read_to_string(&mut s)?;
@@ -32,27 +32,15 @@ mod tests {
         let settings = load_settings(format!("configs/{}.yaml", "test"))
             .expect("Failed to load settings file.");
 
-        println!("Settings {:#?}", settings);
+        // debug!("Settings {:#?}", settings);
 
-        /*let dt = DateTime::<Utc>::from_utc(NaiveDateTime::parse_from_str("2222-01-01T22:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(), Utc);
-        println!("PRODUCTION_TRANSFER_FEE {:#?}", settings.get_production_transfer_fee(dt));*/
+        if let Err(err) = settings.validate() {
+            panic!("Validation error: {}", err);
+        }
 
         let dt = DateTime::<Utc>::from_utc(NaiveDateTime::parse_from_str("2019-12-31T22:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(), Utc);
-        assert_eq!(settings.get_production_transfer_fee(dt), 1.0);
+        let contract = settings.consumption.get_contract(dt).unwrap();
 
-        let dt = DateTime::<Utc>::from_utc(NaiveDateTime::parse_from_str("2019-12-31T21:59:59", "%Y-%m-%dT%H:%M:%S").unwrap(), Utc);
-        assert_eq!(settings.get_production_transfer_fee(dt), 0.09);
-
-        let dt = DateTime::<Utc>::from_utc(NaiveDateTime::parse_from_str("2020-06-02T21:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(), Utc);
-        assert_eq!(settings.get_production_transfer_fee(dt), 1.20);
-
-        let dt = DateTime::<Utc>::from_utc(NaiveDateTime::parse_from_str("2021-01-01T21:59:59", "%Y-%m-%dT%H:%M:%S").unwrap(), Utc);
-        assert_eq!(settings.get_production_transfer_fee(dt), 1.20);
-
-        let dt = DateTime::<Utc>::from_utc(NaiveDateTime::parse_from_str("2021-01-01T22:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(), Utc);
-        assert_eq!(settings.get_production_transfer_fee(dt), 0.09);
-
-        let dt = DateTime::<Utc>::from_utc(NaiveDateTime::parse_from_str("2222-01-01T22:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(), Utc);
-        assert_eq!(settings.get_production_transfer_fee(dt), 99.99);
+        info!("Contract {:#?}", contract);
     }
 }

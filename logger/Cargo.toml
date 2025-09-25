@@ -1,6 +1,6 @@
 [package]
 name = "logger"
-version = "0.1.0"
+version = "3.2.0"
 authors = ["miikaforma <miika.forma@codecontrol.fi>"]
 description = "Library for logging the WattiVahti data"
 edition = "2018"
@@ -21,5 +21,10 @@ actix-web = "4"
 mime = "0.3.16"
 thiserror = "1.0.30"
 serde_yaml = "0.9.19"
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 
 api = { path = "../api" }
+
+# Logging
+log = "0.4"
+flexi_logger = { version = "0.17", features = ["colors", "compress"] }
