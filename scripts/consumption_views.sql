@@ -136,7 +136,7 @@ SELECT
 FROM 
     energies
 WHERE 
-    measure_type = 1 AND resolution_duration = 'PT15MIN'
+    measure_type = 1 AND resolution_duration = 'PT15M'
 GROUP BY 
     1, metering_point_code, measure_type, contract_type, source, measure_unit;
 
@@ -145,6 +145,9 @@ GROUP BY
 
 -- To manually referesh the 15 minute consumptions, run:
 -- CALL refresh_continuous_aggregate('energies_consumption_15min_by_15min', NULL, NULL);
+
+-- To check the earliest timestamp in the 15 minute data for the WHERE clause in the PT1H and up views, run:
+-- SELECT MIN(time) FROM energies WHERE resolution_duration = 'PT15M';
 
 -- Create a materialized view for the hourly consumptions
 DROP MATERIALIZED VIEW IF EXISTS energies_consumption_hour_by_hour CASCADE;
@@ -281,8 +284,12 @@ SELECT
     ROUND(SUM(((spot_price * (tax_percentage / 100. + 1.0)) + transfer_fee + transfer_tax_fee) * value) * 100000.) / 100000. AS price_spot_no_margin
 FROM 
     energies
-WHERE 
-    measure_type = 1 AND resolution_duration = 'PT1H'
+WHERE
+    measure_type = 1 AND
+    (
+        (resolution_duration = 'PT1H' AND TIME < '2023-12-31 22:00:00+00') OR
+        (resolution_duration = 'PT15M' AND time >= '2023-12-31 22:00:00+00')
+    )
 GROUP BY 
     1, metering_point_code, measure_type, contract_type, source, measure_unit;
 
@@ -428,7 +435,11 @@ SELECT
 FROM 
     energies
 WHERE 
-    measure_type = 1 AND resolution_duration = 'PT1H'
+    measure_type = 1 AND
+    (
+        (resolution_duration = 'PT1H' AND TIME < '2023-12-31 22:00:00+00') OR
+        (resolution_duration = 'PT15M' AND time >= '2023-12-31 22:00:00+00')
+    )
 GROUP BY 
     1, metering_point_code, measure_type, contract_type, source, measure_unit;
 
@@ -573,7 +584,11 @@ SELECT
 FROM 
     energies
 WHERE 
-    measure_type = 1 AND resolution_duration = 'PT1H'
+    measure_type = 1 AND
+    (
+        (resolution_duration = 'PT1H' AND TIME < '2023-12-31 22:00:00+00') OR
+        (resolution_duration = 'PT15M' AND time >= '2023-12-31 22:00:00+00')
+    )
 GROUP BY 
     1, metering_point_code, measure_type;
 
@@ -718,7 +733,11 @@ SELECT
 FROM 
     energies
 WHERE 
-    measure_type = 1 AND resolution_duration = 'PT1H'
+    measure_type = 1 AND
+    (
+        (resolution_duration = 'PT1H' AND TIME < '2023-12-31 22:00:00+00') OR
+        (resolution_duration = 'PT15M' AND time >= '2023-12-31 22:00:00+00')
+    )
 GROUP BY 
     1, metering_point_code, measure_type;
 

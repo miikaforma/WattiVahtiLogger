@@ -147,6 +147,13 @@ impl ResolutionDuration {
             _ => ResolutionDuration::PT1H,
         }
     }
+
+    pub fn to_str(&self) -> &str {
+        match self {
+            ResolutionDuration::PT1H => "PT1H",
+            ResolutionDuration::PT15M => "PT15M",
+        }
+    }
 }
 
 impl TSV {

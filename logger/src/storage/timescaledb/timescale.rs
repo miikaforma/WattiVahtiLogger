@@ -78,7 +78,7 @@ pub async fn upsert_productions_into_timescaledb(
                                 VALUES ($1, $2, $3, $4, 'wattivahti', $5, $6, $7, $8, $9, $10, $11, $12, COALESCE((SELECT (price / 10.) FROM day_ahead_prices WHERE time = $1), (SELECT (price / 10.) FROM day_ahead_prices WHERE time = date_trunc('hour', $1))), $13)
                                 ON CONFLICT (time, metering_point_code, measure_type, resolution_duration) DO UPDATE
                                     SET contract_type = $4, source = 'wattivahti', measure_unit = $5, value = $6, energy_basic_fee = $7, energy_margin = $8, transfer_basic_fee = $9, transfer_fee = $10, transfer_tax_fee = $11, tax_percentage = $12, spot_price = EXCLUDED.spot_price, resolution_duration = $13",
-            &[&time, &meteringpointcode.to_string(), &measurementtype, &contract_type, &unit.to_string(), &value, &energy_basic_fee, &energy_margin, &transfer_basic_fee, &transfer_fee, &transfer_tax_fee, &tax_percentage, resolution])
+            &[&time, &meteringpointcode.to_string(), &measurementtype, &contract_type, &unit.to_string(), &value, &energy_basic_fee, &energy_margin, &transfer_basic_fee, &transfer_fee, &transfer_tax_fee, &tax_percentage, &resolution_duration.to_str()])
         .await?;
 
         messages.push(format!("TimescaleDB | Production {} - {:.2}", time, value));
@@ -163,7 +163,7 @@ pub async fn upsert_consumptions_into_timescaledb(
                                         VALUES ($1, $2, $3, $4, 'wattivahti', $5, $6, $7, $8, $9, $10, $11, $12, $13, COALESCE((SELECT (price / 10.) FROM day_ahead_prices WHERE time = $1), (SELECT (price / 10.) FROM day_ahead_prices WHERE time = date_trunc('hour', $1))), $14)
                                         ON CONFLICT (time, metering_point_code, measure_type, resolution_duration) DO UPDATE
                                             SET contract_type = $4, source = 'wattivahti', measure_unit = $5, value = $6, energy_basic_fee = $7, energy_fee = $8, transfer_basic_fee = $9, transfer_fee = $10, transfer_tax_fee = $11, tax_percentage = $12, night = $13, spot_price = EXCLUDED.spot_price, resolution_duration = $14",
-                    &[&time, &meteringpointcode.to_string(), &measurementtype, &contract_type, &unit.to_string(), &value, &energy_basic_fee, &energy_fee, &transfer_basic_fee, &transfer_fee, &transfer_tax_fee, &tax_percentage, &is_night, resolution])
+                    &[&time, &meteringpointcode.to_string(), &measurementtype, &contract_type, &unit.to_string(), &value, &energy_basic_fee, &energy_fee, &transfer_basic_fee, &transfer_fee, &transfer_tax_fee, &tax_percentage, &is_night, &resolution_duration.to_str()])
                 .await?;
             }
             ContractType::Spot => {
@@ -178,7 +178,7 @@ pub async fn upsert_consumptions_into_timescaledb(
                                         VALUES ($1, $2, $3, $4, 'wattivahti', $5, $6, $7, $8, $9, $10, $11, $12, $13, COALESCE((SELECT (price / 10.) FROM day_ahead_prices WHERE time = $1), (SELECT (price / 10.) FROM day_ahead_prices WHERE time = date_trunc('hour', $1))), $14)
                                         ON CONFLICT (time, metering_point_code, measure_type, resolution_duration) DO UPDATE
                                             SET contract_type = $4, source = 'wattivahti', measure_unit = $5, value = $6, energy_basic_fee = $7, energy_margin = $8, transfer_basic_fee = $9, transfer_fee = $10, transfer_tax_fee = $11, tax_percentage = $12, night = $13, spot_price = EXCLUDED.spot_price, resolution_duration = $14",
-                    &[&time, &meteringpointcode.to_string(), &measurementtype, &contract_type, &unit.to_string(), &value, &energy_basic_fee, &energy_margin, &transfer_basic_fee, &transfer_fee, &transfer_tax_fee, &tax_percentage, &is_night, resolution])
+                    &[&time, &meteringpointcode.to_string(), &measurementtype, &contract_type, &unit.to_string(), &value, &energy_basic_fee, &energy_margin, &transfer_basic_fee, &transfer_fee, &transfer_tax_fee, &tax_percentage, &is_night, &resolution_duration.to_str()])
                 .await?;
             }
             ContractType::None => todo!(),
